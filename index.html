@@ -1,0 +1,1857 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Contrôle GTFS-RT — Normandie</title>
+
+  <!-- ─────────── PWA ─────────── -->
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#0d2540">
+  <meta name="application-name" content="GTFS-RT Control">
+  <meta name="description" content="Contrôle Temps Réel — GTFS-RT · SIRI · NeTEx (Périmètre normand)">
+
+  <!-- iOS / Safari -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="RT Control">
+  <link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180.png">
+  <link rel="apple-touch-icon" sizes="152x152" href="icons/icon-152.png">
+  <link rel="apple-touch-icon" sizes="167x167" href="icons/icon-167.png">
+
+  <!-- Android / Chrome -->
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+  <link rel="icon" type="image/png" sizes="512x512" href="icons/icon-512.png">
+  <link rel="icon" type="image/png" sizes="32x32"  href="icons/icon-32.png">
+  <link rel="icon" type="image/png" sizes="16x16"  href="icons/icon-16.png">
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/protobufjs@7.2.5/dist/protobuf.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', Tahoma, sans-serif;
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+      background: #f6f8fa;
+      color: #24292e;
+    }
+
+    /* ── Sidebar (light) ── */
+    #sidebar {
+      width: 300px;
+      min-width: 260px;
+      background: #ffffff;
+      border-right: 1px solid #e1e4e8;
+      display: flex;
+      flex-direction: column;
+      overflow-y: auto;
+      overflow-x: hidden;
+      box-shadow: 2px 0 8px rgba(0,0,0,0.06);
+    }
+
+    .sidebar-header {
+      padding: 14px 16px 10px;
+      border-bottom: 1px solid #e1e4e8;
+      background: #f6f8fa;
+    }
+
+    .sidebar-header h1 {
+      font-size: 14px;
+      font-weight: 700;
+      color: #0969da;
+      letter-spacing: 0.2px;
+    }
+
+    .sidebar-header .subtitle {
+      font-size: 11px;
+      color: #8c959f;
+      margin-top: 2px;
+    }
+
+    .section {
+      padding: 12px 14px;
+      border-bottom: 1px solid #f0f2f4;
+    }
+
+    .section-title {
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.9px;
+      color: #8c959f;
+      margin-bottom: 10px;
+    }
+
+    label {
+      display: block;
+      font-size: 11px;
+      color: #57606a;
+      margin-bottom: 3px;
+      margin-top: 8px;
+    }
+
+    label:first-child { margin-top: 0; }
+
+    input[type="text"],
+    input[type="url"],
+    select {
+      width: 100%;
+      padding: 6px 9px;
+      background: #ffffff;
+      border: 1px solid #d0d7de;
+      border-radius: 6px;
+      color: #24292e;
+      font-size: 12px;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+
+    input[type="text"]:focus,
+    input[type="url"]:focus,
+    select:focus {
+      outline: none;
+      border-color: #0969da;
+      box-shadow: 0 0 0 3px rgba(9,105,218,0.1);
+    }
+
+    select { cursor: pointer; background-color: #ffffff; }
+
+    .file-label {
+      display: block;
+      padding: 6px 9px;
+      background: #f6f8fa;
+      border: 1px dashed #d0d7de;
+      border-radius: 6px;
+      font-size: 11px;
+      color: #0969da;
+      cursor: pointer;
+      text-align: center;
+      transition: background 0.15s, border-color 0.15s;
+      margin-top: 4px;
+    }
+
+    .file-label:hover { background: #eaf3ff; border-color: #0969da; }
+
+    input[type="file"] { display: none; }
+
+    .btn {
+      display: block;
+      width: 100%;
+      padding: 7px 12px;
+      border: none;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s, transform 0.1s;
+      margin-top: 8px;
+    }
+
+    .btn:active { transform: scale(0.98); }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .btn-primary { background: #1a7f37; color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: #2da44e; }
+
+    .btn-secondary { background: #f6f8fa; color: #24292e; border: 1px solid #d0d7de; }
+    .btn-secondary:hover:not(:disabled) { background: #eaeef2; border-color: #b0b7bf; }
+
+    .btn-danger { background: #cf222e; color: #fff; }
+    .btn-danger:hover:not(:disabled) { background: #a40e26; }
+
+    .btn-sm {
+      width: auto;
+      display: inline-block;
+      padding: 4px 10px;
+      font-size: 11px;
+      margin-top: 4px;
+    }
+
+    .divider {
+      display: flex;
+      align-items: center;
+      color: #8c959f;
+      font-size: 10px;
+      margin: 8px 0;
+    }
+
+    .divider::before,
+    .divider::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: #e1e4e8;
+    }
+
+    .divider span { padding: 0 8px; }
+
+    /* Status bars */
+    .status-bar {
+      font-size: 11px;
+      padding: 5px 8px;
+      border-radius: 5px;
+      min-height: 26px;
+      line-height: 1.4;
+      margin-top: 6px;
+      word-break: break-all;
+    }
+
+    .status-idle    { background: #f6f8fa; color: #8c959f; border: 1px solid #e1e4e8; }
+    .status-loading { background: #dafbe1; color: #1a7f37; border: 1px solid #82e09a; }
+    .status-success { background: #dafbe1; color: #1a7f37; border: 1px solid #82e09a; }
+    .status-error   { background: #ffebe9; color: #cf222e; border: 1px solid #ffcecb; }
+    .status-warning { background: #fff8c5; color: #9a6700; border: 1px solid #f0d070; }
+
+    .badge {
+      display: inline-block;
+      padding: 1px 7px;
+      border-radius: 10px;
+      font-size: 10px;
+      font-weight: 600;
+      margin-top: 4px;
+    }
+
+    .badge-green { background: #dafbe1; color: #1a7f37; border: 1px solid #82e09a; }
+    .badge-red   { background: #ffebe9; color: #cf222e; border: 1px solid #ffcecb; }
+
+    /* Stats */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+    }
+
+    .stat-card {
+      background: #f6f8fa;
+      border: 1px solid #e1e4e8;
+      border-radius: 6px;
+      padding: 8px 10px;
+      text-align: center;
+    }
+
+    .stat-value { font-size: 22px; font-weight: 700; line-height: 1.1; }
+    .stat-label { font-size: 9px; color: #8c959f; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 1px; }
+
+    .stat-card.green .stat-value { color: #1a7f37; }
+    .stat-card.red   .stat-value { color: #cf222e; }
+    .stat-card.orange .stat-value { color: #9a6700; }
+    .stat-card.blue  .stat-value { color: #0969da; }
+
+    /* Legend */
+    .legend-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      font-size: 11px;
+      color: #57606a;
+      margin-bottom: 7px;
+    }
+
+    .legend-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      margin-top: 1px;
+      border: 1.5px solid rgba(0,0,0,0.12);
+    }
+
+    .dot-green  { background: #2da44e; }
+    .dot-red    { background: #cf222e; }
+    .dot-orange { background: #d4a017; }
+    .dot-blue   { background: #0969da; }
+
+    /* Countdown / last update */
+    #refreshCountdown {
+      font-size: 10px;
+      color: #8c959f;
+      text-align: center;
+      margin-top: 4px;
+      min-height: 14px;
+    }
+
+    #lastUpdate {
+      font-size: 10px;
+      color: #8c959f;
+      text-align: center;
+      margin-top: 6px;
+    }
+
+    /* Spinner */
+    .spinner {
+      display: inline-block;
+      width: 9px;
+      height: 9px;
+      border: 1.5px solid currentColor;
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      vertical-align: middle;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Hint */
+    .hint { font-size: 10px; color: #8c959f; margin-top: 4px; line-height: 1.4; }
+
+    /* Format toggle */
+    .format-toggle {
+      display: flex;
+      gap: 3px;
+      background: #f6f8fa;
+      border: 1px solid #d0d7de;
+      border-radius: 6px;
+      padding: 3px;
+      margin-bottom: 10px;
+    }
+    .fmt-btn {
+      flex: 1;
+      padding: 5px 8px;
+      border: none;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      background: transparent;
+      color: #8c959f;
+      transition: background 0.12s, color 0.12s;
+    }
+    .fmt-btn.active { background: #ffffff; color: #24292e; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .fmt-btn:hover:not(.active) { color: #24292e; }
+
+    /* ── Map container ── */
+    #mapContainer { flex: 1; position: relative; }
+    #map { width: 100%; height: 100%; }
+
+    /* ── Map search widget ── */
+    #mapSearchWidget {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      z-index: 1000;
+      width: 270px;
+      font-family: 'Segoe UI', Tahoma, sans-serif;
+    }
+
+    .msw-bar {
+      display: flex;
+      align-items: center;
+      background: #ffffff;
+      border-radius: 10px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.14);
+      padding: 0 10px;
+      height: 40px;
+      gap: 7px;
+    }
+
+    .msw-icon { color: #8c959f; flex-shrink: 0; line-height: 0; }
+
+    .msw-bar input {
+      flex: 1;
+      border: none;
+      background: transparent;
+      font-size: 13px;
+      color: #24292e;
+      outline: none;
+      font-family: inherit;
+    }
+
+    .msw-bar input::placeholder { color: #8c959f; }
+
+    #searchClear {
+      background: none; border: none; color: #8c959f; font-size: 17px;
+      cursor: pointer; padding: 0; line-height: 1; display: none; flex-shrink: 0;
+    }
+    #searchClear:hover { color: #24292e; }
+
+    #searchResults {
+      list-style: none;
+      margin-top: 5px;
+      max-height: 210px;
+      overflow-y: auto;
+      background: #ffffff;
+      border-radius: 10px;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.13);
+      display: none;
+    }
+
+    #searchResults li {
+      padding: 9px 14px;
+      font-size: 12px;
+      cursor: pointer;
+      color: #24292e;
+      border-bottom: 1px solid #f0f2f4;
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 8px;
+    }
+    #searchResults li:first-child { border-radius: 10px 10px 0 0; }
+    #searchResults li:last-child  { border-bottom: none; border-radius: 0 0 10px 10px; }
+    #searchResults li:only-child  { border-radius: 10px; }
+    #searchResults li:hover { background: #f6f8fa; }
+    #searchResults li:hover .sr-name { color: #0969da; }
+    .sr-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+    .sr-id   { font-size: 10px; color: #8c959f; flex-shrink: 0; }
+    .sr-none { padding: 9px 14px; font-size: 12px; color: #8c959f; font-style: italic; }
+
+    /* ── Leaflet popup (stays dark for map contrast) ── */
+    .leaflet-popup-content-wrapper {
+      background: #ffffff;
+      border: 1px solid #e1e4e8;
+      border-radius: 8px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+    }
+
+    .leaflet-popup-tip { background: #ffffff; }
+
+    .leaflet-popup-content {
+      color: #24292e;
+      font-family: 'Segoe UI', sans-serif;
+      margin: 10px 14px;
+    }
+
+    .popup-stop-name {
+      font-size: 13px;
+      font-weight: 700;
+      color: #24292e;
+      margin-bottom: 2px;
+    }
+
+    .popup-stop-id {
+      font-size: 10px;
+      color: #8c959f;
+      margin-bottom: 8px;
+    }
+
+    .popup-trip {
+      padding: 5px 0;
+      border-top: 1px solid #e1e4e8;
+    }
+
+    .popup-trip-id { font-size: 11px; font-weight: 600; }
+    .popup-trip-id.match   { color: #1a7f37; }
+    .popup-trip-id.nomatch { color: #cf222e; }
+    .popup-trip-id.unknown { color: #8c959f; }
+
+    .popup-time { font-size: 11px; color: #8c959f; margin-top: 2px; }
+
+    .popup-trip-sub {
+      font-size: 9px;
+      color: #8c959f;
+      font-weight: 400;
+      margin-top: 1px;
+      font-style: normal;
+    }
+
+    .popup-rt-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      background: #dafbe1;
+      color: #1a7f37;
+      border: 1px solid #82e09a;
+      border-radius: 10px;
+      padding: 2px 8px 2px 5px;
+      font-size: 10px;
+      font-weight: 600;
+      margin-top: 3px;
+    }
+
+    .rt-label {
+      font-size: 8px;
+      font-weight: 700;
+      letter-spacing: 0.6px;
+      text-transform: uppercase;
+      color: #1a7f37;
+      opacity: 0.75;
+    }
+
+    .rt-time {
+      font-size: 11px;
+      font-weight: 700;
+      color: #1a7f37;
+    }
+
+    .rt-dot {
+      display: inline-block;
+      width: 7px;
+      height: 7px;
+      background: #2da44e;
+      border-radius: 50%;
+      flex-shrink: 0;
+      animation: rtpulse 1.4s ease-in-out infinite;
+    }
+
+    @keyframes rtpulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50%       { opacity: 0.4; transform: scale(0.65); }
+    }
+
+    /* countNoCoords inline color override */
+    #countNoCoords { font-size: 10px; color: #8c959f; text-align: center; margin-top: 5px; }
+
+    /* ── Bouton toggle sidebar (mobile) ── */
+    #sidebarToggle {
+      display: none;
+      align-items: center;
+      justify-content: center;
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      z-index: 1001;
+      width: 40px;
+      height: 40px;
+      background: #ffffff;
+      border: none;
+      border-radius: 10px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.16);
+      cursor: pointer;
+      flex-direction: column;
+      gap: 4px;
+      padding: 9px 8px;
+    }
+
+    #sidebarToggle span {
+      display: block;
+      width: 20px;
+      height: 2px;
+      background: #24292e;
+      border-radius: 2px;
+      transition: all 0.22s ease;
+    }
+
+    /* Bouton ✕ dans le header sidebar (mobile uniquement) */
+    #sidebarClose {
+      display: none;
+      background: none;
+      border: none;
+      font-size: 20px;
+      color: #57606a;
+      cursor: pointer;
+      padding: 0 2px;
+      line-height: 1;
+      margin-left: auto;
+      flex-shrink: 0;
+    }
+
+    /* Overlay */
+    #sidebarOverlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.42);
+      z-index: 999;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s ease;
+    }
+
+    /* ── Responsive mobile ── */
+    @media (max-width: 768px) {
+
+      #sidebar {
+        position: fixed;
+        top: 0; left: 0;
+        width: 88vw;
+        max-width: 320px;
+        height: 100%;
+        z-index: 1000;
+        transform: translateX(-105%);
+        transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+        box-shadow: none;
+        min-width: unset;
+        border-right: none;
+      }
+
+      #sidebar.open {
+        transform: translateX(0);
+        box-shadow: 4px 0 24px rgba(0,0,0,0.22);
+      }
+
+      #sidebarOverlay {
+        display: block;
+      }
+
+      #sidebarOverlay.open {
+        opacity: 1;
+        pointer-events: auto;
+      }
+
+      #mapContainer {
+        width: 100%;
+        height: 100%;
+        flex: 1;
+      }
+
+      #sidebarToggle {
+        display: flex;
+      }
+
+      #sidebarClose {
+        display: block;
+      }
+
+      .sidebar-header {
+        display: flex;
+        align-items: flex-start;
+        gap: 8px;
+        padding: 14px 14px 10px;
+      }
+
+      .sidebar-header-text { flex: 1; }
+
+      /* Search widget : ne chevauche pas le toggle */
+      #mapSearchWidget {
+        left: 62px;
+        right: 12px;
+        width: auto;
+      }
+
+      #mapSearchWidget .msw-bar input { font-size: 14px; }
+
+      /* Touch targets plus grands */
+      .btn {
+        padding: 10px 14px;
+        font-size: 13px;
+        margin-top: 10px;
+      }
+
+      input[type="text"],
+      input[type="url"],
+      select {
+        padding: 9px 11px;
+        font-size: 14px;
+      }
+
+      .file-label {
+        padding: 10px 9px;
+        font-size: 12px;
+      }
+
+      .section { padding: 14px 14px; }
+      .section-title { margin-bottom: 12px; }
+      label { font-size: 12px; margin-top: 10px; }
+
+      .fmt-btn { padding: 7px 10px; font-size: 12px; }
+
+      .stats-grid { gap: 8px; }
+      .stat-card { padding: 10px; }
+      .stat-value { font-size: 24px; }
+
+      /* Popups touch-friendly */
+      .leaflet-popup-content-wrapper { border-radius: 12px; }
+      .leaflet-popup-content { margin: 12px 16px; }
+      .popup-stop-name { font-size: 14px; }
+      .popup-stop-id { font-size: 11px; }
+      .popup-trip { padding: 7px 0; }
+      .popup-trip-id { font-size: 13px; }
+      .popup-trip-sub { font-size: 10px; }
+      .rt-time { font-size: 12px; }
+      .rt-label { font-size: 9px; }
+
+      /* Countdown plus visible */
+      #refreshCountdown { font-size: 11px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Overlay mobile -->
+<div id="sidebarOverlay" onclick="closeSidebar()"></div>
+
+<!-- ─────────────── SIDEBAR ─────────────── -->
+<div id="sidebar">
+
+  <div class="sidebar-header">
+    <div class="sidebar-header-text">
+      <h1>⬡ Contrôle Temps Réel</h1>
+      <div class="subtitle">Périmètre normand — GTFS-RT · SIRI · NeTEx</div>
+    </div>
+    <button id="sidebarClose" onclick="closeSidebar()" title="Fermer">×</button>
+  </div>
+
+  <!-- Offre théorique -->
+  <div class="section">
+    <div class="section-title">Offre Théorique</div>
+
+    <div class="format-toggle">
+      <button class="fmt-btn active" id="fmtTheoGtfs"  onclick="setTheoFormat('gtfs')">GTFS</button>
+      <button class="fmt-btn"        id="fmtTheoNetex" onclick="setTheoFormat('netex')">NeTEx</button>
+    </div>
+
+    <!-- GTFS -->
+    <div id="theoGtfsFields">
+      <label for="gtfsUrl">URL du fichier ZIP</label>
+      <input type="text" id="gtfsUrl" placeholder="https://…/gtfs.zip">
+      <button class="btn btn-secondary" onclick="loadGTFSUrl()">Charger depuis l'URL</button>
+      <div class="divider"><span>ou</span></div>
+      <label class="file-label" for="gtfsFile">📂 Charger un fichier local (.zip)</label>
+      <input type="file" id="gtfsFile" accept=".zip" onchange="loadGTFSFile(this)">
+    </div>
+
+    <!-- NeTEx -->
+    <div id="theoNetexFields" style="display:none">
+      <label for="netexUrl">URL du fichier ZIP NeTEx</label>
+      <input type="text" id="netexUrl" placeholder="https://…/netex.zip">
+      <button class="btn btn-secondary" onclick="loadNeTExUrl()">Charger depuis l'URL</button>
+      <div class="divider"><span>ou</span></div>
+      <label class="file-label" for="netexFile">📂 Charger un fichier local (.zip)</label>
+      <input type="file" id="netexFile" accept=".zip" onchange="loadNeTExFile(this)">
+      <div class="hint">StopPlace → coordonnées · ServiceJourney → trip IDs<br>Profil NeTEx France supporté.</div>
+    </div>
+
+    <div id="gtfsStatus" class="status-bar status-idle">Aucune offre théorique chargée</div>
+    <div id="gtfsBadge"></div>
+  </div>
+
+  <!-- Flux RT -->
+  <div class="section">
+    <div class="section-title">Flux Temps Réel</div>
+
+    <div class="format-toggle">
+      <button class="fmt-btn active" id="fmtRtGtfsrt" onclick="setRtFormat('gtfsrt')">GTFS-RT</button>
+      <button class="fmt-btn"        id="fmtRtSiri"   onclick="setRtFormat('siri')">SIRI</button>
+    </div>
+
+    <label for="rtUrl">URL du flux</label>
+    <input type="text" id="rtUrl" placeholder="https://…/trip_updates.pb">
+    <div id="rtFormatHint" class="hint">Format protobuf (.pb) — détection automatique JSON/binaire.</div>
+
+    <label for="corsProxy">Proxy CORS <span style="color:#484f58">(si blocage navigateur)</span></label>
+    <input type="text" id="corsProxy" placeholder="https://corsproxy.io/?">
+    <div class="hint">Nécessaire uniquement si le flux ne retourne pas de header <code>Access-Control-Allow-Origin</code>.</div>
+
+    <label for="refreshSel">Actualisation automatique</label>
+    <select id="refreshSel">
+      <option value="0">Manuelle uniquement</option>
+      <option value="15">Toutes les 15 s</option>
+      <option value="30" selected>Toutes les 30 s</option>
+      <option value="60">Toutes les 60 s</option>
+      <option value="120">Toutes les 2 min</option>
+    </select>
+
+    <button class="btn btn-primary" id="startBtn" onclick="startRT()">▶ Démarrer la visualisation</button>
+    <button class="btn btn-secondary" id="refreshBtn" onclick="refreshRT()" style="display:none">↻ Rafraîchir maintenant</button>
+    <button class="btn btn-danger"   id="stopBtn"    onclick="stopRT()"    style="display:none">⏹ Arrêter</button>
+
+    <div id="rtStatus" class="status-bar status-idle">En attente…</div>
+    <div id="refreshCountdown"></div>
+  </div>
+
+  <!-- Statistiques -->
+  <div class="section">
+    <div class="section-title">Statistiques</div>
+    <div class="stats-grid">
+      <div class="stat-card green">
+        <div class="stat-value" id="countGreen">—</div>
+        <div class="stat-label">Correspondants</div>
+      </div>
+      <div class="stat-card red">
+        <div class="stat-value" id="countRed">—</div>
+        <div class="stat-label">Hors offre</div>
+      </div>
+      <div class="stat-card orange">
+        <div class="stat-value" id="countMixed">—</div>
+        <div class="stat-label">Mixtes</div>
+      </div>
+      <div class="stat-card blue">
+        <div class="stat-value" id="countTotal">—</div>
+        <div class="stat-label">Arrêts affichés</div>
+      </div>
+    </div>
+    <div id="countNoCoords"></div>
+    <div id="lastUpdate"></div>
+  </div>
+
+  <!-- Légende -->
+  <div class="section">
+    <div class="section-title">Légende</div>
+    <div class="legend-item">
+      <div class="legend-dot dot-green"></div>
+      <span>Tous les trip_id correspondent à l'offre théorique</span>
+    </div>
+    <div class="legend-item">
+      <div class="legend-dot dot-red"></div>
+      <span>Aucun trip_id ne correspond à l'offre théorique</span>
+    </div>
+    <div class="legend-item">
+      <div class="legend-dot dot-orange"></div>
+      <span>Correspondance partielle (mix de trips)</span>
+    </div>
+    <div class="legend-item">
+      <div class="legend-dot dot-blue"></div>
+      <span>Offre théorique non chargée</span>
+    </div>
+    <div class="hint" style="margin-top:4px">
+      L'heure affichée est le prochain départ RT.<br>
+      Cliquer sur un arrêt pour voir le détail des trips.
+    </div>
+  </div>
+
+</div><!-- /sidebar -->
+
+<!-- ─────────────── MAP ─────────────── -->
+<div id="mapContainer">
+  <div id="map"></div>
+
+  <!-- Bouton toggle sidebar (mobile) -->
+  <button id="sidebarToggle" onclick="toggleSidebar()" title="Menu">
+    <span></span><span></span><span></span>
+  </button>
+
+  <!-- Floating search widget -->
+  <div id="mapSearchWidget">
+    <div class="msw-bar">
+      <span class="msw-icon">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="6.5" cy="6.5" r="4.5" stroke="#8c959f" stroke-width="1.5"/>
+          <line x1="10.5" y1="10.5" x2="14" y2="14" stroke="#8c959f" stroke-width="1.5" stroke-linecap="round"/>
+        </svg>
+      </span>
+      <input type="text" id="stopSearch" placeholder="Rechercher un arrêt…" autocomplete="off">
+      <button id="searchClear" title="Effacer">×</button>
+    </div>
+    <ul id="searchResults"></ul>
+  </div>
+</div>
+
+<!-- ── GTFS-RT proto (inline) ── -->
+<script id="gtfsrtProto" type="text/plain">
+syntax = "proto2";
+package transit_realtime;
+
+message FeedMessage {
+  required FeedHeader header = 1;
+  repeated FeedEntity entity = 2;
+  extensions 1000 to 1999;
+}
+message FeedHeader {
+  required string gtfs_realtime_version = 1;
+  optional Incrementality incrementality = 2 [default = FULL_DATASET];
+  optional uint64 timestamp = 4;
+  extensions 1000 to 1999;
+  enum Incrementality { FULL_DATASET = 0; DIFFERENTIAL = 1; }
+}
+message FeedEntity {
+  required string id = 1;
+  optional bool is_deleted = 3 [default = false];
+  optional TripUpdate trip_update = 4;
+  optional VehiclePosition vehicle = 5;
+  optional Alert alert = 6;
+  extensions 1000 to 1999;
+}
+message TripUpdate {
+  required TripDescriptor trip = 1;
+  optional VehicleDescriptor vehicle = 3;
+  repeated StopTimeUpdate stop_time_update = 2;
+  optional uint64 timestamp = 4;
+  optional int32 delay = 5;
+  extensions 1000 to 1999;
+  message StopTimeEvent {
+    optional int32 delay = 1;
+    optional int64 time = 2;
+    optional int32 uncertainty = 3;
+    extensions 1000 to 1999;
+  }
+  message StopTimeUpdate {
+    optional uint32 stop_sequence = 1;
+    optional string stop_id = 4;
+    optional StopTimeEvent arrival = 2;
+    optional StopTimeEvent departure = 3;
+    optional ScheduleRelationship schedule_relationship = 5 [default = SCHEDULED];
+    extensions 1000 to 1999;
+    enum ScheduleRelationship { SCHEDULED = 0; SKIPPED = 1; NO_DATA = 2; }
+  }
+}
+message VehiclePosition {
+  optional TripDescriptor trip = 1;
+  optional VehicleDescriptor vehicle = 8;
+  optional Position position = 2;
+  optional uint64 timestamp = 5;
+  extensions 1000 to 1999;
+}
+message Position {
+  required float latitude = 1;
+  required float longitude = 2;
+  optional float bearing = 3;
+  optional double odometer = 4;
+  optional float speed = 5;
+}
+message Alert {
+  repeated TimeRange active_period = 1;
+  repeated EntitySelector informed_entity = 5;
+  optional TranslatedString header_text = 10;
+  optional TranslatedString description_text = 11;
+  extensions 1000 to 1999;
+}
+message TimeRange { optional uint64 start = 1; optional uint64 end = 2; }
+message EntitySelector {
+  optional string agency_id = 1;
+  optional string route_id = 2;
+  optional int32 route_type = 3;
+  optional TripDescriptor trip = 4;
+  optional string stop_id = 5;
+}
+message TranslatedString {
+  repeated Translation translation = 1;
+  message Translation { required string text = 1; optional string language = 2; }
+}
+message TripDescriptor {
+  optional string trip_id = 1;
+  optional string route_id = 5;
+  optional string start_time = 2;
+  optional string start_date = 3;
+  optional ScheduleRelationship schedule_relationship = 4;
+  enum ScheduleRelationship { SCHEDULED = 0; ADDED = 1; UNSCHEDULED = 2; CANCELED = 3; }
+}
+message VehicleDescriptor {
+  optional string id = 1;
+  optional string label = 2;
+  optional string license_plate = 3;
+}
+</script>
+
+<script>
+'use strict';
+
+// ════════════════════════════════════════════════════════
+//  MAP
+// ════════════════════════════════════════════════════════
+
+const map = L.map('map', { preferCanvas: false }).setView([49.44, 1.09], 9);
+
+L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+  attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+  subdomains: 'abcd',
+  maxZoom: 20
+}).addTo(map);
+
+const markersLayer = L.layerGroup().addTo(map);
+let lastStopMap = null;
+map.on('zoomend', () => { if (lastStopMap) renderStops(lastStopMap); });
+
+// ════════════════════════════════════════════════════════
+//  STATE
+// ════════════════════════════════════════════════════════
+
+let gtfsData = null;   // { stops: Map<stop_id, {lat,lon,name}>, trips: Set<trip_id>, stopCount, tripCount }
+let FeedMessage = null;
+let rtInterval = null;
+let cdownInterval = null;
+let nextAt = 0;
+let isRunning = false;
+let theoFormat = 'gtfs';   // 'gtfs' | 'netex'
+let rtFormat   = 'gtfsrt'; // 'gtfsrt' | 'siri'
+
+function setTheoFormat(fmt) {
+  theoFormat = fmt;
+  document.getElementById('fmtTheoGtfs').classList.toggle('active', fmt === 'gtfs');
+  document.getElementById('fmtTheoNetex').classList.toggle('active', fmt === 'netex');
+  document.getElementById('theoGtfsFields').style.display  = fmt === 'gtfs'  ? '' : 'none';
+  document.getElementById('theoNetexFields').style.display = fmt === 'netex' ? '' : 'none';
+  setStatus('gtfsStatus', 'Aucune offre théorique chargée', 'idle');
+  document.getElementById('gtfsBadge').innerHTML = '';
+  gtfsData = null;
+}
+
+function setRtFormat(fmt) {
+  rtFormat = fmt;
+  document.getElementById('fmtRtGtfsrt').classList.toggle('active', fmt === 'gtfsrt');
+  document.getElementById('fmtRtSiri').classList.toggle('active', fmt === 'siri');
+  document.getElementById('rtFormatHint').textContent = fmt === 'siri'
+    ? 'Format XML SIRI — ET (EstimatedTimetable) et SM (StopMonitoring) supportés.'
+    : 'Format protobuf (.pb) — détection automatique JSON/binaire.';
+  document.getElementById('rtUrl').placeholder = fmt === 'siri'
+    ? 'https://…/siri.xml'
+    : 'https://…/trip_updates.pb';
+}
+
+// ════════════════════════════════════════════════════════
+//  PROTOBUF SETUP
+// ════════════════════════════════════════════════════════
+
+async function setupProtobuf() {
+  if (FeedMessage) return;
+  const protoText = document.getElementById('gtfsrtProto').textContent;
+  const root = protobuf.parse(protoText, { keepCase: true }).root;
+  FeedMessage = root.lookupType('transit_realtime.FeedMessage');
+}
+
+// ════════════════════════════════════════════════════════
+//  HELPERS
+// ════════════════════════════════════════════════════════
+
+function stripBOM(s) {
+  return s.charCodeAt(0) === 0xFEFF ? s.slice(1) : s;
+}
+
+function longToNumber(v) {
+  if (v == null) return null;
+  if (typeof v === 'number') return v;
+  if (typeof v === 'string') return parseInt(v, 10) || null;
+  // protobufjs Long object
+  if (typeof v === 'object' && 'low' in v) {
+    return v.low + v.high * 4294967296;
+  }
+  return Number(v);
+}
+
+function fmtTime(unix) {
+  if (!unix || isNaN(unix) || unix <= 0) return null;
+  return new Date(unix * 1000).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+}
+
+function fmtDelay(secs) {
+  if (secs == null) return '';
+  const m = Math.round(secs / 60);
+  return m === 0 ? '' : ` (${m > 0 ? '+' : ''}${m} min)`;
+}
+
+function setStatus(id, msg, type = 'idle') {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = msg;
+  el.className = `status-bar status-${type}`;
+}
+
+// ════════════════════════════════════════════════════════
+//  GTFS STATIC
+// ════════════════════════════════════════════════════════
+
+async function loadGTFSFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+  setStatus('gtfsStatus', '⟳ Lecture du fichier ZIP…', 'loading');
+  document.getElementById('gtfsBadge').innerHTML = '';
+  try {
+    const zip = await JSZip.loadAsync(file);
+    gtfsData = await parseGTFSZip(zip);
+    setStatus('gtfsStatus',
+      `✓ ${gtfsData.tripCount.toLocaleString('fr-FR')} trajets · ${gtfsData.stopCount.toLocaleString('fr-FR')} arrêts`,
+      'success');
+    document.getElementById('gtfsBadge').innerHTML =
+      `<span class="badge badge-green">✓ ${file.name}</span>`;
+  } catch (e) {
+    setStatus('gtfsStatus', `✗ ${e.message}`, 'error');
+    document.getElementById('gtfsBadge').innerHTML =
+      `<span class="badge badge-red">✗ Échec du chargement</span>`;
+    gtfsData = null;
+  }
+}
+
+async function loadGTFSUrl() {
+  const url = document.getElementById('gtfsUrl').value.trim();
+  if (!url) { alert('Veuillez saisir une URL.'); return; }
+  setStatus('gtfsStatus', '⟳ Téléchargement…', 'loading');
+  document.getElementById('gtfsBadge').innerHTML = '';
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const blob = await resp.blob();
+    const zip = await JSZip.loadAsync(blob);
+    gtfsData = await parseGTFSZip(zip);
+    setStatus('gtfsStatus',
+      `✓ ${gtfsData.tripCount.toLocaleString('fr-FR')} trajets · ${gtfsData.stopCount.toLocaleString('fr-FR')} arrêts`,
+      'success');
+    document.getElementById('gtfsBadge').innerHTML =
+      `<span class="badge badge-green">✓ Chargé depuis URL</span>`;
+  } catch (e) {
+    setStatus('gtfsStatus', `✗ ${e.message}`, 'error');
+    document.getElementById('gtfsBadge').innerHTML =
+      `<span class="badge badge-red">✗ Échec</span>`;
+    gtfsData = null;
+  }
+}
+
+async function parseGTFSZip(zip) {
+  const stops = new Map();
+  const trips = new Set();
+
+  // Lookup with optional subfolder prefix
+  function findFile(name) {
+    return zip.files[name]
+      || Object.values(zip.files).find(f => f.name.endsWith('/' + name) && !f.dir);
+  }
+
+  const stopsFile = findFile('stops.txt');
+  if (!stopsFile) throw new Error('stops.txt introuvable dans le ZIP');
+  const stopsCSV = stripBOM(await stopsFile.async('string'));
+  const { data: stopsRows } = Papa.parse(stopsCSV, { header: true, skipEmptyLines: true });
+  for (const row of stopsRows) {
+    const lat = parseFloat(row.stop_lat);
+    const lon = parseFloat(row.stop_lon);
+    if (row.stop_id && !isNaN(lat) && !isNaN(lon)) {
+      stops.set(row.stop_id.trim(), {
+        lat, lon,
+        name: (row.stop_name || row.stop_id).trim()
+      });
+    }
+  }
+
+  const tripToRoute = new Map(); // trip_id → route_id
+  const routeNames  = new Map(); // route_id → display name
+
+  const tripsFile = findFile('trips.txt');
+  if (!tripsFile) throw new Error('trips.txt introuvable dans le ZIP');
+  const tripsCSV = stripBOM(await tripsFile.async('string'));
+  const { data: tripsRows } = Papa.parse(tripsCSV, { header: true, skipEmptyLines: true });
+  for (const row of tripsRows) {
+    if (row.trip_id) {
+      trips.add(row.trip_id.trim());
+      if (row.route_id) tripToRoute.set(row.trip_id.trim(), row.route_id.trim());
+    }
+  }
+
+  const routesFile = findFile('routes.txt');
+  if (routesFile) {
+    const routesCSV = stripBOM(await routesFile.async('string'));
+    const { data: routesRows } = Papa.parse(routesCSV, { header: true, skipEmptyLines: true });
+    for (const row of routesRows) {
+      if (row.route_id) {
+        const name = (row.route_short_name || row.route_long_name || row.route_id).trim();
+        routeNames.set(row.route_id.trim(), name);
+      }
+    }
+  }
+
+  if (!stops.size) throw new Error('Aucun arrêt valide trouvé dans stops.txt');
+  if (!trips.size) throw new Error('Aucun trajet trouvé dans trips.txt');
+
+  return { stops, trips, stopCount: stops.size, tripCount: trips.size, tripToRoute, routeNames };
+}
+
+// ════════════════════════════════════════════════════════
+//  NETEX PARSING
+// ════════════════════════════════════════════════════════
+
+async function loadNeTExFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+  setStatus('gtfsStatus', '⟳ Lecture du fichier ZIP NeTEx…', 'loading');
+  document.getElementById('gtfsBadge').innerHTML = '';
+  try {
+    const zip = await JSZip.loadAsync(file);
+    gtfsData = await parseNeTExZip(zip);
+    setStatus('gtfsStatus',
+      `✓ ${gtfsData.tripCount.toLocaleString('fr-FR')} trajets · ${gtfsData.stopCount.toLocaleString('fr-FR')} arrêts`,
+      'success');
+    document.getElementById('gtfsBadge').innerHTML =
+      `<span class="badge badge-green">✓ NeTEx — ${file.name}</span>`;
+  } catch (e) {
+    setStatus('gtfsStatus', `✗ ${e.message}`, 'error');
+    document.getElementById('gtfsBadge').innerHTML =
+      `<span class="badge badge-red">✗ Échec NeTEx</span>`;
+    gtfsData = null;
+  }
+}
+
+async function loadNeTExUrl() {
+  const url = document.getElementById('netexUrl').value.trim();
+  if (!url) { alert('Veuillez saisir une URL NeTEx.'); return; }
+  setStatus('gtfsStatus', '⟳ Téléchargement NeTEx…', 'loading');
+  document.getElementById('gtfsBadge').innerHTML = '';
+  try {
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const zip = await JSZip.loadAsync(await resp.blob());
+    gtfsData = await parseNeTExZip(zip);
+    setStatus('gtfsStatus',
+      `✓ ${gtfsData.tripCount.toLocaleString('fr-FR')} trajets · ${gtfsData.stopCount.toLocaleString('fr-FR')} arrêts`,
+      'success');
+    document.getElementById('gtfsBadge').innerHTML =
+      `<span class="badge badge-green">✓ NeTEx chargé</span>`;
+  } catch (e) {
+    setStatus('gtfsStatus', `✗ ${e.message}`, 'error');
+    document.getElementById('gtfsBadge').innerHTML =
+      `<span class="badge badge-red">✗ Échec</span>`;
+    gtfsData = null;
+  }
+}
+
+async function parseNeTExZip(zip) {
+  const stops     = new Map();
+  const trips     = new Set();
+  const placeCoords  = new Map(); // StopPlace id  → {lat, lon, name}
+  const sspToPlace   = new Map(); // ScheduledStopPoint id → StopPlace id
+
+  const xmlFiles = Object.values(zip.files)
+    .filter(f => !f.dir && /\.xml$/i.test(f.name))
+    .sort((a, b) => a.name.localeCompare(b.name));
+
+  if (!xmlFiles.length) throw new Error('Aucun fichier XML trouvé dans le ZIP');
+
+  function txt(el, ...selectors) {
+    for (const sel of selectors) {
+      const v = el.querySelector(sel)?.textContent?.trim();
+      if (v) return v;
+    }
+    return '';
+  }
+
+  function indexStop(id, lat, lon, name) {
+    if (!id || isNaN(lat) || isNaN(lon)) return;
+    const obj = { lat, lon, name: name || id };
+    stops.set(id, obj);
+    // Index every purely-numeric segment ≥ 3 digits (local stop code)
+    // This lets FR:76481:ZE:4138:ATOUMOD003 (RT) match ATOUMOD003:StopPoint:4138 (NeTEx)
+    const parts = id.split(':');
+    for (const p of parts) {
+      if (/^\d{3,}$/.test(p) && !stops.has(p)) stops.set(p, obj);
+    }
+    // Legacy: second-to-last segment
+    if (parts.length >= 3) {
+      const local = parts[parts.length - 2];
+      if (local && !stops.has(local)) stops.set(local, obj);
+    }
+  }
+
+  for (const file of xmlFiles) {
+    let content;
+    try { content = stripBOM(await file.async('string')); } catch { continue; }
+    const doc = new DOMParser().parseFromString(content, 'application/xml');
+    if (doc.querySelector('parsererror')) continue;
+
+    // StopPlace → coords
+    for (const sp of doc.querySelectorAll('StopPlace')) {
+      const id  = sp.getAttribute('id');
+      const lat = parseFloat(txt(sp, 'Location > Latitude', 'Latitude'));
+      const lon = parseFloat(txt(sp, 'Location > Longitude', 'Longitude'));
+      const name = txt(sp, 'Name');
+      if (id && !isNaN(lat) && !isNaN(lon)) {
+        placeCoords.set(id, { lat, lon, name });
+        indexStop(id, lat, lon, name);
+      }
+    }
+
+    // ScheduledStopPoint → coords (some profiles embed them directly)
+    for (const ssp of doc.querySelectorAll('ScheduledStopPoint')) {
+      const id  = ssp.getAttribute('id');
+      const lat = parseFloat(txt(ssp, 'Location > Latitude', 'Latitude'));
+      const lon = parseFloat(txt(ssp, 'Location > Longitude', 'Longitude'));
+      const name = txt(ssp, 'Name');
+      if (id && !isNaN(lat) && !isNaN(lon)) indexStop(id, lat, lon, name);
+    }
+
+    // PassengerStopAssignment → SSP ↔ StopPlace link
+    for (const psa of doc.querySelectorAll('PassengerStopAssignment')) {
+      const sspRef   = psa.querySelector('ScheduledStopPointRef')?.getAttribute('ref');
+      const placeRef = psa.querySelector('StopPlaceRef')?.getAttribute('ref');
+      if (sspRef && placeRef) sspToPlace.set(sspRef, placeRef);
+    }
+
+    // ServiceJourney → trip IDs
+    for (const sj of doc.querySelectorAll('ServiceJourney')) {
+      const id = sj.getAttribute('id');
+      if (!id) continue;
+      trips.add(id);
+      const parts = id.split(':');
+      if (parts.length >= 3) {
+        trips.add(parts[parts.length - 2]); // local numeric part
+        trips.add(parts.slice(2, -1).join(':')); // middle segments
+      }
+    }
+  }
+
+  // Resolve SSP → StopPlace coords
+  for (const [sspId, placeId] of sspToPlace) {
+    if (!stops.has(sspId)) {
+      const c = placeCoords.get(placeId);
+      if (c) indexStop(sspId, c.lat, c.lon, c.name);
+    }
+  }
+
+  if (!trips.size) throw new Error('Aucun ServiceJourney trouvé dans les XML NeTEx');
+
+  return { stops, trips, stopCount: stops.size, tripCount: trips.size };
+}
+
+// ════════════════════════════════════════════════════════
+//  RT FETCH + PARSE (GTFS-RT & SIRI)
+// ════════════════════════════════════════════════════════
+
+async function fetchRT() {
+  const url   = document.getElementById('rtUrl').value.trim();
+  const proxy = document.getElementById('corsProxy').value.trim();
+  if (!url) throw new Error('URL du flux manquante');
+
+  const fetchUrl = proxy ? proxy + url : url;
+  const resp = await fetch(fetchUrl, {
+    headers: { Accept: 'application/xml, application/x-protobuf, application/octet-stream, application/json, */*' },
+    cache: 'no-store'
+  });
+  if (!resp.ok) throw new Error(`HTTP ${resp.status} — ${resp.statusText}`);
+
+  const ct  = (resp.headers.get('content-type') || '').toLowerCase();
+  let buf   = await resp.arrayBuffer();
+  const dec = new TextDecoder();
+
+  // ── Décompression gzip si le proxy n'a pas retransmis Content-Encoding ──
+  const magic = new Uint8Array(buf, 0, 2);
+  if (magic[0] === 0x1F && magic[1] === 0x8B) {
+    try {
+      const ds     = new DecompressionStream('gzip');
+      const writer = ds.writable.getWriter();
+      const reader = ds.readable.getReader();
+      writer.write(new Uint8Array(buf));
+      writer.close();
+      const chunks = [];
+      for (let r; !(r = await reader.read()).done;) chunks.push(r.value);
+      const total = chunks.reduce((n, c) => n + c.length, 0);
+      const out   = new Uint8Array(total);
+      let pos = 0;
+      for (const c of chunks) { out.set(c, pos); pos += c.length; }
+      buf = out.buffer;
+    } catch { /* si DecompressionStream échoue, on tente quand même */ }
+  }
+
+  const head = dec.decode(buf.slice(0, 10));
+  const first = head.trimStart()[0];
+
+  // ── SIRI / XML ────────────────────────────────────
+  if (rtFormat === 'siri' || ct.includes('xml') || head.trimStart().startsWith('<?xml') || head.trimStart().startsWith('<Siri')) {
+    const text = dec.decode(buf);
+    const doc  = new DOMParser().parseFromString(text, 'application/xml');
+    if (doc.querySelector('parsererror')) throw new Error('XML SIRI invalide');
+    return parseSIRI(doc);
+  }
+
+  // ── JSON ──────────────────────────────────────────
+  if (ct.includes('json') || first === '{' || first === '[') {
+    const json = JSON.parse(dec.decode(buf));
+    return parseEntities(extractEntities(json));
+  }
+
+  // ── Protobuf — parseur binaire manuel (résistant aux extensions Cityway) ──
+  return parseGTFSRTBinary(new Uint8Array(buf));
+}
+
+// Parseur bas niveau : lit uniquement les champs GTFS-RT standard,
+// saute tout champ inconnu ou d'extension avec r.pos = end.
+function parseGTFSRTBinary(bytes) {
+  const stopMap = new Map();
+  const r = protobuf.Reader.create(bytes);
+  while (r.pos < r.len) {
+    const tag = r.uint32(), fno = tag >>> 3, wt = tag & 7;
+    if (fno === 2 && wt === 2) {           // FeedEntity
+      const end = r.uint32() + r.pos;
+      pbReadEntity(r, end, stopMap);
+    } else { r.skipType(wt); }
+  }
+  return stopMap;
+}
+
+function pbReadEntity(r, end, stopMap) {
+  try {
+    while (r.pos < end) {
+      const tag = r.uint32(), fno = tag >>> 3, wt = tag & 7;
+      if ((fno === 3 || fno === 4) && wt === 2) { // TripUpdate (field 4 standard, field 3 Cityway SIRI→GTFS-RT)
+        const tuEnd = r.uint32() + r.pos;
+        pbReadTripUpdate(r, tuEnd, stopMap);
+      } else { r.skipType(wt); }
+    }
+  } catch (_) {}
+  r.pos = end;
+}
+
+function pbReadTripUpdate(r, end, stopMap) {
+  let tripId = '';
+  const stus = [];
+  try {
+    while (r.pos < end) {
+      const tag = r.uint32(), fno = tag >>> 3, wt = tag & 7;
+      if (fno === 1 && wt === 2) {         // TripDescriptor
+        const tdEnd = r.uint32() + r.pos;
+        tripId = pbReadTripId(r, tdEnd);
+      } else if (fno === 2 && wt === 2) {  // StopTimeUpdate
+        const stuEnd = r.uint32() + r.pos;
+        stus.push(pbReadSTU(r, stuEnd));
+      } else { r.skipType(wt); }
+    }
+  } catch (_) {}
+  r.pos = end;
+  if (!tripId) return;
+  const matched = gtfsData ? gtfsData.trips.has(tripId) : null;
+  for (const stu of stus) {
+    if (!stu.stopId) continue;
+    if (!stopMap.has(stu.stopId)) stopMap.set(stu.stopId, { stopId: stu.stopId, updates: [] });
+    stopMap.get(stu.stopId).updates.push({ tripId, time: stu.time, delay: stu.delay, matched });
+  }
+}
+
+function pbReadTripId(r, end) {
+  let id = '';
+  try {
+    while (r.pos < end) {
+      const tag = r.uint32(), fno = tag >>> 3, wt = tag & 7;
+      if (fno === 1 && wt === 2) id = r.string();
+      else r.skipType(wt);
+    }
+  } catch (_) {}
+  r.pos = end;
+  return id;
+}
+
+function pbReadSTU(r, end) {
+  let stopId = '', time = null, delay = null;
+  try {
+    while (r.pos < end) {
+      const tag = r.uint32(), fno = tag >>> 3, wt = tag & 7;
+      if (fno === 4 && wt === 2) {
+        stopId = r.string();
+      } else if ((fno === 2 || fno === 3) && wt === 2) {  // arrival / departure
+        const steEnd = r.uint32() + r.pos;
+        const ste = pbReadSTE(r, steEnd);
+        if (time === null && ste.time !== null)   time  = ste.time;
+        if (delay === null && ste.delay !== null) delay = ste.delay;
+      } else { r.skipType(wt); }
+    }
+  } catch (_) {}
+  r.pos = end;
+  return { stopId, time, delay };
+}
+
+function pbReadSTE(r, end) {
+  let delay = null, time = null;
+  try {
+    while (r.pos < end) {
+      const tag = r.uint32(), fno = tag >>> 3, wt = tag & 7;
+      if (fno === 1 && wt === 0) {
+        delay = r.int32();
+      } else if (fno === 2 && wt === 0) {
+        time = longToNumber(r.int64());
+      } else { r.skipType(wt); }
+    }
+  } catch (_) {}
+  r.pos = end;
+  return { delay, time };
+}
+
+// ── SIRI parser (ET + SM) ────────────────────────────
+function parseSIRI(doc) {
+  const stopMap = new Map();
+
+  function addUpdate(stopId, tripId, timeStr, delay) {
+    if (!stopId || !tripId) return;
+    const matched = gtfsData ? gtfsData.trips.has(tripId) : null;
+    const time    = timeStr ? Math.floor(new Date(timeStr).getTime() / 1000) : null;
+    if (!stopMap.has(stopId)) stopMap.set(stopId, { stopId, updates: [] });
+    stopMap.get(stopId).updates.push({ tripId, time, delay, matched });
+  }
+
+  // SIRI-ET — EstimatedTimetable
+  for (const ej of doc.querySelectorAll('EstimatedVehicleJourney')) {
+    const tripId =
+      ej.querySelector('FramedVehicleJourneyRef > DatedVehicleJourneyRef')?.textContent?.trim() ||
+      ej.querySelector('DatedVehicleJourneyRef')?.textContent?.trim() ||
+      ej.querySelector('VehicleJourneyRef')?.textContent?.trim() || '';
+
+    for (const call of ej.querySelectorAll('EstimatedCall, RecordedCall')) {
+      const stopId  = call.querySelector('StopPointRef')?.textContent?.trim();
+      const timeStr = call.querySelector('ExpectedDepartureTime, AimedDepartureTime, ExpectedArrivalTime, AimedArrivalTime')?.textContent;
+      addUpdate(stopId, tripId, timeStr, null);
+    }
+  }
+
+  // SIRI-SM — StopMonitoring
+  for (const visit of doc.querySelectorAll('MonitoredStopVisit')) {
+    const stopId = visit.querySelector('MonitoringRef')?.textContent?.trim();
+    const mvj    = visit.querySelector('MonitoredVehicleJourney');
+    if (!mvj) continue;
+    const tripId =
+      mvj.querySelector('FramedVehicleJourneyRef > DatedVehicleJourneyRef')?.textContent?.trim() ||
+      mvj.querySelector('DatedVehicleJourneyRef')?.textContent?.trim() ||
+      mvj.querySelector('VehicleJourneyRef')?.textContent?.trim() || '';
+    const timeStr = mvj.querySelector('ExpectedDepartureTime, AimedDepartureTime, ExpectedArrivalTime')?.textContent;
+    addUpdate(stopId, tripId, timeStr, null);
+  }
+
+  return stopMap;
+}
+
+function extractEntities(json) {
+  // Handle various JSON envelope formats
+  return json.entity || json.entities || json.Entities
+    || (Array.isArray(json) ? json : []);
+}
+
+/**
+ * Parse a list of FeedEntity (protobuf decoded objects OR plain JSON objects).
+ * Returns Map<stop_id, { stopId, updates: [{tripId, time, delay, matched}] }>
+ */
+function parseEntities(entities) {
+  const stopMap = new Map();
+
+  for (const entity of entities) {
+    // Support both snake_case (keepCase:true) and camelCase
+    const tu = entity.trip_update || entity.tripUpdate;
+    if (!tu) continue;
+
+    const trip = tu.trip || {};
+    const tripId = String(trip.trip_id || trip.tripId || '').trim();
+    if (!tripId) continue;
+
+    const matched = gtfsData ? gtfsData.trips.has(tripId) : null;
+
+    const stus = tu.stop_time_update || tu.stopTimeUpdate || [];
+    for (const stu of stus) {
+      const stopId = String(stu.stop_id || stu.stopId || '').trim();
+      if (!stopId) continue;
+
+      const dep = stu.departure || stu.dep;
+      const arr = stu.arrival || stu.arr;
+      const evt = dep || arr;
+
+      const time  = evt ? longToNumber(evt.time)  : null;
+      const delay = evt ? longToNumber(evt.delay) : null;
+
+      if (!stopMap.has(stopId)) stopMap.set(stopId, { stopId, updates: [] });
+      stopMap.get(stopId).updates.push({ tripId, time, delay, matched });
+    }
+  }
+
+  return stopMap;
+}
+
+// ════════════════════════════════════════════════════════
+//  MAP RENDERING
+// ════════════════════════════════════════════════════════
+
+const COLOR = {
+  green:  '#56d364',
+  red:    '#f85149',
+  orange: '#e3b341',
+  blue:   '#58a6ff',
+};
+
+function stopColor(updates) {
+  if (!gtfsData) return COLOR.blue;
+  const m = updates.filter(u => u.matched).length;
+  const n = updates.filter(u => u.matched === false).length;
+  if (m > 0 && n > 0) return COLOR.orange;
+  if (m > 0) return COLOR.green;
+  return COLOR.red;
+}
+
+function makeIcon(color, label, zoom) {
+  const d = 9;
+  if (!label || zoom < 17) {
+    return L.divIcon({
+      className: '',
+      iconSize:  [d, d],
+      iconAnchor:[d / 2, d / 2],
+      html: `<div style="width:${d}px;height:${d}px;background:${color};border-radius:50%;border:1.5px solid rgba(255,255,255,0.55);box-shadow:0 1px 3px rgba(0,0,0,0.45)"></div>`
+    });
+  }
+  const lw  = label.length * 6 + 12;
+  const tw  = Math.max(d, lw);
+  return L.divIcon({
+    className: '',
+    iconSize:  [tw, 26],
+    iconAnchor:[tw / 2, 22],
+    html: `<div style="display:flex;flex-direction:column;align-items:center;gap:2px">
+      <span style="font-size:9px;font-weight:600;color:#fff;background:rgba(15,15,15,0.68);padding:1px 5px;border-radius:3px;white-space:nowrap;line-height:14px;letter-spacing:0.2px;pointer-events:none">${label}</span>
+      <div style="width:${d}px;height:${d}px;background:${color};border-radius:50%;border:1.5px solid rgba(255,255,255,0.6);box-shadow:0 1px 3px rgba(0,0,0,0.5)"></div>
+    </div>`
+  });
+}
+
+function buildPopup(stopInfo, stopId, updates) {
+  // Tri par heure de passage croissante (null en dernier)
+  const sorted = [...updates].sort((a, b) => {
+    if (a.time == null && b.time == null) return 0;
+    if (a.time == null) return 1;
+    if (b.time == null) return -1;
+    return a.time - b.time;
+  });
+
+  const rows = sorted.map(u => {
+    const t = fmtTime(u.time);
+    const d = fmtDelay(u.delay);
+    const cls = u.matched === true ? 'match' : u.matched === false ? 'nomatch' : 'unknown';
+    const icon = u.matched === true ? '✓' : u.matched === false ? '✗' : '?';
+
+    // Résolution du nom de ligne depuis routes.txt
+    let routeName = null;
+    if (gtfsData?.tripToRoute && gtfsData?.routeNames) {
+      const routeId = gtfsData.tripToRoute.get(u.tripId);
+      if (routeId) routeName = gtfsData.routeNames.get(routeId) || null;
+    }
+    const displayName = routeName !== null ? routeName : u.tripId;
+    const hasRouteName = routeName !== null;
+
+    return `<div class="popup-trip">
+      <div class="popup-trip-id ${cls}">${icon} ${displayName}</div>
+      ${hasRouteName ? `<div class="popup-trip-sub">${u.tripId}</div>` : ''}
+      ${t ? `<div style="margin-top:3px"><span class="popup-rt-badge">
+        <span class="rt-dot"></span>
+        <span class="rt-label">EN DIRECT</span>
+        <span class="rt-time">${t}${d}</span>
+      </span></div>` : ''}
+    </div>`;
+  }).join('');
+
+  return `<div class="popup-stop-name">${stopInfo.name}</div>
+    <div class="popup-stop-id">stop_id : ${stopId}</div>
+    ${rows}`;
+}
+
+// ── Stop search ─────────────────────────────────────────
+(function initSearch() {
+  const input   = document.getElementById('stopSearch');
+  const clearBtn = document.getElementById('searchClear');
+  const list    = document.getElementById('searchResults');
+
+  input.addEventListener('input', () => {
+    const val = input.value.trim();
+    clearBtn.style.display = val ? 'block' : 'none';
+    showSearchResults(val);
+  });
+
+  clearBtn.addEventListener('click', () => {
+    input.value = '';
+    clearBtn.style.display = 'none';
+    list.style.display = 'none';
+  });
+
+  list.addEventListener('click', e => {
+    const li = e.target.closest('li[data-lat]');
+    if (!li) return;
+    flyToStop(parseFloat(li.dataset.lat), parseFloat(li.dataset.lon), li.dataset.id);
+    input.value = li.querySelector('.sr-name').textContent;
+    clearBtn.style.display = 'block';
+    list.style.display = 'none';
+  });
+
+  document.addEventListener('click', e => {
+    if (!e.target.closest('#mapSearchWidget'))
+      list.style.display = 'none';
+  });
+})();
+
+function showSearchResults(val) {
+  const list = document.getElementById('searchResults');
+  if (!val || val.length < 2) { list.style.display = 'none'; return; }
+
+  const q = val.toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
+  const seen = new Set();
+  const matches = [];
+
+  const source = gtfsData?.stops ?? (lastStopMap
+    ? new Map([...lastStopMap.entries()].map(([id, s]) => [id, { lat: 0, lon: 0, name: id }]))
+    : null);
+
+  if (!source) { list.style.display = 'none'; return; }
+
+  for (const [id, info] of source) {
+    if (!info.lat || !info.lon) continue;
+    const norm = (info.name || id).toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '');
+    if (!norm.includes(q)) continue;
+    const key = `${info.lat.toFixed(5)},${info.lon.toFixed(5)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    matches.push({ id, info });
+    if (matches.length >= 8) break;
+  }
+
+  if (!matches.length) {
+    list.innerHTML = '<li class="sr-none">Aucun résultat</li>';
+    list.style.display = 'block';
+    return;
+  }
+
+  list.innerHTML = matches.map(({ id, info }) =>
+    `<li data-lat="${info.lat}" data-lon="${info.lon}" data-id="${id.replace(/"/g,'&quot;')}">
+      <span class="sr-name">${info.name || id}</span>
+      <span class="sr-id">${id.split(':').pop()}</span>
+    </li>`
+  ).join('');
+  list.style.display = 'block';
+}
+
+function flyToStop(lat, lon, stopId) {
+  const z = Math.max(map.getZoom(), 16);
+  map.flyTo([lat, lon], z, { animate: true, duration: 0.6 });
+  setTimeout(() => {
+    markersLayer.eachLayer(m => {
+      const ll = m.getLatLng();
+      if (Math.abs(ll.lat - lat) < 0.00015 && Math.abs(ll.lng - lon) < 0.00015) {
+        m.openPopup();
+      }
+    });
+  }, 700);
+}
+
+// ════════════════════════════════════════════════════════
+//  MOBILE SIDEBAR TOGGLE
+// ════════════════════════════════════════════════════════
+
+function toggleSidebar() {
+  const sidebar = document.getElementById('sidebar');
+  const overlay = document.getElementById('sidebarOverlay');
+  const isOpen  = sidebar.classList.contains('open');
+  sidebar.classList.toggle('open', !isOpen);
+  overlay.classList.toggle('open', !isOpen);
+}
+
+function closeSidebar() {
+  document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('sidebarOverlay').classList.remove('open');
+}
+
+// ════════════════════════════════════════════════════════
+function renderStops(stopMap) {
+  lastStopMap = stopMap;
+  markersLayer.clearLayers();
+
+  let green = 0, red = 0, orange = 0, noCoords = 0;
+  const now = Date.now() / 1000;
+
+  for (const [stopId, { updates }] of stopMap) {
+    let info = gtfsData?.stops.get(stopId);
+    if (!info && gtfsData) {
+      // Fallback: scan right-to-left (local IDs are more specific than commune codes)
+      // e.g. FR:76481:ZE:4138:ATOUMOD003 → try 4138, then 76481
+      const parts = stopId.split(':');
+      for (let i = parts.length - 1; i >= 0; i--) {
+        if (/^\d{3,}$/.test(parts[i])) { info = gtfsData.stops.get(parts[i]); if (info) break; }
+      }
+    }
+    if (!info) { noCoords++; continue; }
+
+    const color = stopColor(updates);
+
+    const m = updates.filter(u => u.matched).length;
+    const n = updates.filter(u => u.matched === false).length;
+    if (m > 0 && n > 0) orange++;
+    else if (m > 0) green++;
+    else red++;
+
+    // Display label: earliest future departure time
+    const futureTimes = updates.map(u => u.time).filter(t => t && t > now).sort((a, b) => a - b);
+    const displayTime = fmtTime(futureTimes[0] ?? updates.find(u => u.time)?.time);
+
+    const marker = L.marker([info.lat, info.lon], { icon: makeIcon(color, displayTime, map.getZoom()) });
+    marker.bindPopup(buildPopup(info, stopId, updates), { maxWidth: 260 });
+    markersLayer.addLayer(marker);
+  }
+
+  const total = green + red + orange;
+  document.getElementById('countGreen').textContent = green;
+  document.getElementById('countRed').textContent   = red;
+  document.getElementById('countMixed').textContent = orange;
+  document.getElementById('countTotal').textContent = total;
+  const rtTotal = green + red + orange + noCoords;
+
+  let coordsMsg = '';
+  if (!gtfsData) {
+    coordsMsg = `⚠ Offre théorique non chargée — chargez un GTFS ou NeTEx pour afficher les ${rtTotal} arrêts du flux.`;
+  } else if (noCoords > 0 && total === 0) {
+    const sampleRT  = [...stopMap.keys()].slice(0, 1)[0] || '';
+    const sampleTh  = [...gtfsData.stops.keys()].slice(0, 1)[0] || '';
+    coordsMsg = `⚠ ${noCoords} arrêts RT sans coordonnées — les stop_id ne correspondent pas (ex RT : "${sampleRT}" / ex théorique : "${sampleTh}").`;
+  } else if (noCoords > 0) {
+    coordsMsg = `${noCoords} arrêt(s) sans coordonnées dans l'offre théorique`;
+  }
+
+  document.getElementById('countNoCoords').textContent = coordsMsg;
+  document.getElementById('lastUpdate').textContent =
+    `Dernière mise à jour : ${new Date().toLocaleTimeString('fr-FR')}`;
+
+  return { green, red, orange, total, noCoords, rtTotal };
+}
+
+// ════════════════════════════════════════════════════════
+//  RT LIFECYCLE
+// ════════════════════════════════════════════════════════
+
+async function refreshRT() {
+  setStatus('rtStatus', '<span class="spinner"></span> Chargement du flux…', 'loading');
+  document.getElementById('rtStatus').innerHTML =
+    `<span class="spinner"></span> Chargement du flux…`;
+  document.getElementById('rtStatus').className = 'status-bar status-loading';
+  try {
+    const stopMap = await fetchRT();
+    const s = renderStops(stopMap);
+    if (s.total > 0) {
+      setStatus('rtStatus',
+        `✓ ${s.total} arrêts · ${s.green} verts · ${s.red} rouges${s.orange > 0 ? ` · ${s.orange} orange` : ''}`,
+        'success');
+    } else {
+      setStatus('rtStatus',
+        `Flux chargé — ${s.rtTotal} arrêts RT reçus, 0 affiché (voir message ci-dessous)`,
+        s.rtTotal > 0 ? 'warning' : 'idle');
+    }
+  } catch (e) {
+    setStatus('rtStatus', `✗ ${e.message}`, 'error');
+    console.error('[GTFS-RT]', e);
+  }
+}
+
+function startRT() {
+  const url = document.getElementById('rtUrl').value.trim();
+  if (!url) { alert('Veuillez renseigner une URL GTFS-RT.'); return; }
+
+  if (!gtfsData) {
+    const ok = confirm(
+      'Aucune offre théorique GTFS chargée.\n\n' +
+      'Les arrêts seront affichés en bleu (statut indéterminé).\n\n' +
+      'Continuer sans offre théorique ?'
+    );
+    if (!ok) return;
+  }
+
+  isRunning = true;
+  document.getElementById('startBtn').style.display   = 'none';
+  document.getElementById('refreshBtn').style.display = 'block';
+  document.getElementById('stopBtn').style.display    = 'block';
+
+  refreshRT();
+
+  const secs = parseInt(document.getElementById('refreshSel').value, 10);
+  if (secs > 0) {
+    rtInterval  = setInterval(refreshRT, secs * 1000);
+    nextAt      = Date.now() + secs * 1000;
+    cdownInterval = setInterval(() => {
+      const rem = Math.max(0, Math.ceil((nextAt - Date.now()) / 1000));
+      if (rem === 0) nextAt = Date.now() + secs * 1000;
+      document.getElementById('refreshCountdown').textContent =
+        `Prochain rafraîchissement dans ${rem} s`;
+    }, 500);
+  } else {
+    document.getElementById('refreshCountdown').textContent = 'Rafraîchissement manuel';
+  }
+}
+
+function stopRT() {
+  isRunning = false;
+  clearInterval(rtInterval);
+  clearInterval(cdownInterval);
+  rtInterval = cdownInterval = null;
+  document.getElementById('startBtn').style.display   = 'block';
+  document.getElementById('refreshBtn').style.display = 'none';
+  document.getElementById('stopBtn').style.display    = 'none';
+  document.getElementById('refreshCountdown').textContent = '';
+  setStatus('rtStatus', 'Arrêté', 'idle');
+}
+
+// ════════════════════════════════════════════════════════
+//  PWA · Enregistrement du Service Worker
+// ════════════════════════════════════════════════════════
+// Désactivé sous Electron (file://) où le SW est inutile et non supporté
+if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('service-worker.js')
+      .then(reg => console.log('[SW] enregistré, scope:', reg.scope))
+      .catch(err => console.warn('[SW] échec:', err));
+  });
+}
+
+</script>
+</body>
+</html>
