@@ -1466,21 +1466,25 @@ async function loadNeTExUrl() {
   }
 }
 
+
+// ════════════════════════════════════════════════════════
+//  NETEX PARSING (streaming regex — économise la mémoire iOS)
+// ════════════════════════════════════════════════════════
+
 async function parseNeTExZip(zip) {
-  const stops     = new Map();
-  const trips     = new Set();
+  const stops        = new Map();
+  const trips        = new Set();
   const placeCoords  = new Map(); // StopPlace id  → {lat, lon, name}
   const sspToPlace   = new Map(); // ScheduledStopPoint id → StopPlace id
 
-  // Lignes et chaîne de résolution ServiceJourney → Line
-  const lines       = new Map(); // Line id → { name, shortName, color, textColor, operatorRef }
-  const routeToLine = new Map(); // Route id → Line id
-  const jpToLine    = new Map(); // JourneyPattern id → Line id (résolu en post-pass)
-  const jpToRoute   = new Map(); // JourneyPattern id → Route id (intermédiaire)
-  const sjRefs      = new Map(); // ServiceJourney id → { directLine, jpRef, routeRef, directOperator }
-  const tripToLine  = new Map(); // ServiceJourney id (et alias) → Line id (résolu en post-pass)
-  const agencies    = new Map(); // Operator id → { id, name }
-  const tripToAgency = new Map(); // ServiceJourney id (et alias) → Operator id
+  const lines        = new Map(); // Line id → { name, shortName, color, textColor, operatorRef }
+  const routeToLine  = new Map(); // Route id → Line id
+  const jpToLine     = new Map(); // JourneyPattern id → Line id
+  const jpToRoute    = new Map(); // JourneyPattern id → Route id
+  const sjRefs       = new Map(); // ServiceJourney id → { directLine, jpRef, routeRef, directOperator }
+  const tripToLine   = new Map();
+  const agencies     = new Map(); // Operator id → { id, name }
+  const tripToAgency = new Map();
 
   const xmlFiles = Object.values(zip.files)
     .filter(f => !f.dir && /\.xml$/i.test(f.name))
@@ -1488,15 +1492,7 @@ async function parseNeTExZip(zip) {
 
   if (!xmlFiles.length) throw new Error('Aucun fichier XML trouvé dans le ZIP');
 
-  function txt(el, ...selectors) {
-    for (const sel of selectors) {
-      const v = el.querySelector(sel)?.textContent?.trim();
-      if (v) return v;
-    }
-    return '';
-  }
-
-  // Normalise une couleur hex (ajoute # si absent)
+  // ── Helpers ──
   function normColor(c) {
     if (!c) return null;
     const t = c.trim();
@@ -1504,19 +1500,26 @@ async function parseNeTExZip(zip) {
     return /^#/.test(t) ? t : '#' + t;
   }
 
-  // Détection des alias ambigus : on tient un Set des alias qui ont été créés
-  // pour un objet, puis si on essaie d'en créer un deuxième pour un autre objet,
-  // on supprime l'alias existant et on marque le code comme ambigu.
-  const ambiguousStopAliases = new Set(); // codes à ne plus jamais réutiliser
-  const stopList = []; // liste unique des stops (sans alias)
-  const seenStops = new Set(); // pour dédupliquer stopList par id principal
+  // Décodage minimal des entités XML (suffisant pour les noms d'arrêts/lignes)
+  function decodeXml(s) {
+    if (!s || s.indexOf('&') === -1) return s;
+    return s.replace(/&amp;/g, '&')
+            .replace(/&lt;/g,  '<')
+            .replace(/&gt;/g,  '>')
+            .replace(/&quot;/g, '"')
+            .replace(/&apos;/g, "'")
+            .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n, 10)));
+  }
+
+  // Détection des alias de stop ambigus
+  const ambiguousStopAliases = new Set();
+  const stopList = [];
+  const seenStops = new Set();
 
   function tryAddStopAlias(alias, obj) {
-    if (!alias) return;
-    if (ambiguousStopAliases.has(alias)) return; // déjà conflictuel
+    if (!alias || ambiguousStopAliases.has(alias)) return;
     const existing = stops.get(alias);
     if (existing && existing !== obj) {
-      // Conflit : deux stops différents partagent cet alias → on le retire
       stops.delete(alias);
       ambiguousStopAliases.add(alias);
     } else if (!existing) {
@@ -1526,24 +1529,13 @@ async function parseNeTExZip(zip) {
 
   function indexStop(id, lat, lon, name) {
     if (!id || isNaN(lat) || isNaN(lon)) return;
-    // Si l'id est déjà connu, on ne re-crée pas l'objet (économise mémoire)
     if (stops.has(id)) return;
     const obj = { id, lat, lon, name: name || id };
     stops.set(id, obj);
-
-    // Liste unique des stops (sans alias) pour itération ultérieure
     if (!seenStops.has(id)) {
       seenStops.add(id);
       stopList.push(obj);
     }
-
-    // Pour FR:76481:ZE:4138:ATOUMOD003, le seul segment réellement local et
-    // non-ambigu est l'avant-dernier (ici "4138" = id local du quai dans le
-    // référentiel). On l'indexe uniquement s'il n'entre pas en conflit.
-    // On ignore volontairement :
-    //   - les codes communes (76481), trop génériques
-    //   - les codes type (ZE, ATOUMOD003) qui désignent un type/réseau
-    //   - les segments de moins de 4 chiffres
     const parts = id.split(':');
     if (parts.length >= 3) {
       const local = parts[parts.length - 2];
@@ -1551,6 +1543,45 @@ async function parseNeTExZip(zip) {
     }
   }
 
+  // ── Regex compilées une fois (réutilisées sur tous les fichiers) ──
+  // /s flag pas supporté partout, on utilise [\s\S] pour matcher multiline
+  const RE_STOPPLACE = /<StopPlace\b[^>]*\bid="([^"]+)"[^>]*>([\s\S]*?)<\/StopPlace>/g;
+  const RE_SSP       = /<ScheduledStopPoint\b[^>]*\bid="([^"]+)"[^>]*>([\s\S]*?)<\/ScheduledStopPoint>/g;
+  const RE_PSA       = /<PassengerStopAssignment\b[^>]*>([\s\S]*?)<\/PassengerStopAssignment>/g;
+  const RE_OPERATOR  = /<Operator\b[^>]*\bid="([^"]+)"[^>]*>([\s\S]*?)<\/Operator>/g;
+  const RE_LINE      = /<(?:Line|FlexibleLine)\b[^>]*\bid="([^"]+)"[^>]*>([\s\S]*?)<\/(?:Line|FlexibleLine)>/g;
+  const RE_ROUTE     = /<Route\b[^>]*\bid="([^"]+)"[^>]*>([\s\S]*?)<\/Route>/g;
+  const RE_JP        = /<(?:JourneyPattern|ServiceJourneyPattern)\b[^>]*\bid="([^"]+)"[^>]*>([\s\S]*?)<\/(?:JourneyPattern|ServiceJourneyPattern)>/g;
+  const RE_SJ        = /<ServiceJourney\b[^>]*\bid="([^"]+)"[^>]*>([\s\S]*?)<\/ServiceJourney>/g;
+  const RE_DSJ       = /<DatedServiceJourney\b[^>]*\bid="([^"]+)"[^>]*>([\s\S]*?)<\/DatedServiceJourney>/g;
+
+  // Helpers d'extraction de sous-éléments simples
+  function getTag(body, tagName) {
+    const m = new RegExp(`<${tagName}>([\\s\\S]*?)<\\/${tagName}>`).exec(body);
+    return m ? decodeXml(m[1].trim()) : '';
+  }
+  function getRef(body, refName) {
+    const m = new RegExp(`<${refName}\\b[^>]*\\bref="([^"]+)"`).exec(body);
+    return m ? m[1] : null;
+  }
+  function getLatLon(body) {
+    const lat = parseFloat(getTag(body, 'Latitude'));
+    const lon = parseFloat(getTag(body, 'Longitude'));
+    return { lat, lon };
+  }
+
+  // Itère sur une regex globale en yieldant tous les N matches (évite watchdog iOS)
+  async function forEachMatch(re, str, every, fn) {
+    re.lastIndex = 0;
+    let count = 0;
+    let m;
+    while ((m = re.exec(str)) !== null) {
+      fn(m);
+      if (++count % every === 0) await yieldToBrowser();
+    }
+  }
+
+  // ── Boucle principale sur les fichiers XML ──
   let fileIdx = 0;
   for (const file of xmlFiles) {
     fileIdx++;
@@ -1558,139 +1589,119 @@ async function parseNeTExZip(zip) {
       `⟳ NeTEx ${fileIdx}/${xmlFiles.length} : ${file.name.split('/').pop()}`,
       'loading');
     await yieldToBrowser();
-    let content;
-    try { content = stripBOM(await file.async('string')); } catch { continue; }
-    await yieldToBrowser();
-    const doc = new DOMParser().parseFromString(content, 'application/xml');
-    content = null; // libère la string immédiatement
-    if (doc.querySelector('parsererror')) continue;
+
+    // Lecture du fichier
+    let xml;
+    try { xml = stripBOM(await file.async('string')); } catch { continue; }
     await yieldToBrowser();
 
-    // StopPlace → coords
-    let nLoop = 0;
-    for (const sp of doc.querySelectorAll('StopPlace')) {
-      const id  = sp.getAttribute('id');
-      const lat = parseFloat(txt(sp, 'Location > Latitude', 'Latitude'));
-      const lon = parseFloat(txt(sp, 'Location > Longitude', 'Longitude'));
-      const name = txt(sp, 'Name');
-      if (id && !isNaN(lat) && !isNaN(lon)) {
+    // 1) StopPlace
+    await forEachMatch(RE_STOPPLACE, xml, 500, m => {
+      const id   = m[1];
+      const body = m[2];
+      const { lat, lon } = getLatLon(body);
+      const name = getTag(body, 'Name');
+      if (!isNaN(lat) && !isNaN(lon)) {
         placeCoords.set(id, { lat, lon, name });
         indexStop(id, lat, lon, name);
       }
-      if (++nLoop % 1000 === 0) await yieldToBrowser();
-    }
-    await yieldToBrowser();
+    });
 
-    // ScheduledStopPoint → coords (some profiles embed them directly)
-    nLoop = 0;
-    for (const ssp of doc.querySelectorAll('ScheduledStopPoint')) {
-      const id  = ssp.getAttribute('id');
-      const lat = parseFloat(txt(ssp, 'Location > Latitude', 'Latitude'));
-      const lon = parseFloat(txt(ssp, 'Location > Longitude', 'Longitude'));
-      const name = txt(ssp, 'Name');
-      if (id && !isNaN(lat) && !isNaN(lon)) indexStop(id, lat, lon, name);
-      if (++nLoop % 1000 === 0) await yieldToBrowser();
-    }
-    await yieldToBrowser();
+    // 2) ScheduledStopPoint avec coords inline
+    await forEachMatch(RE_SSP, xml, 500, m => {
+      const id   = m[1];
+      const body = m[2];
+      const { lat, lon } = getLatLon(body);
+      const name = getTag(body, 'Name');
+      if (!isNaN(lat) && !isNaN(lon)) indexStop(id, lat, lon, name);
+    });
 
-    // PassengerStopAssignment → SSP ↔ StopPlace link
-    nLoop = 0;
-    for (const psa of doc.querySelectorAll('PassengerStopAssignment')) {
-      const sspRef   = psa.querySelector('ScheduledStopPointRef')?.getAttribute('ref');
-      const placeRef = psa.querySelector('StopPlaceRef')?.getAttribute('ref');
+    // 3) PassengerStopAssignment
+    await forEachMatch(RE_PSA, xml, 1000, m => {
+      const body     = m[1];
+      const sspRef   = getRef(body, 'ScheduledStopPointRef');
+      const placeRef = getRef(body, 'StopPlaceRef');
       if (sspRef && placeRef) sspToPlace.set(sspRef, placeRef);
-      if (++nLoop % 2000 === 0) await yieldToBrowser();
-    }
-    await yieldToBrowser();
+    });
 
-    // ── Lignes (Line / FlexibleLine) ──
-    // <Line id="..."><Name>Bus 1</Name><ShortName>1</ShortName>
-    //   <Presentation><Colour>FF0000</Colour><TextColour>FFFFFF</TextColour></Presentation>
-    // </Line>
+    // 4) Operator
+    await forEachMatch(RE_OPERATOR, xml, 200, m => {
+      const id   = m[1];
+      const body = m[2];
+      const name = getTag(body, 'Name')
+                || getTag(body, 'CompanyNumber')
+                || getTag(body, 'PrivateCode')
+                || id;
+      agencies.set(id, { id, name });
+    });
 
-    // Operators (entreprise exploitante)
-    for (const op of doc.querySelectorAll("Operator")) {
-      const oid = op.getAttribute("id");
-      if (!oid) continue;
-      const oname = txt(op, ":scope > Name", "Name")
-                 || txt(op, "CompanyNumber", "PrivateCode")
-                 || oid;
-      agencies.set(oid, { id: oid, name: oname });
-    }
-    for (const line of doc.querySelectorAll('Line, FlexibleLine')) {
-      const id = line.getAttribute('id');
-      if (!id) continue;
-      const name      = txt(line, ':scope > Name', 'Name');
-      const shortName = txt(line, ':scope > ShortName', 'ShortName',
-                                  ':scope > PublicCode', 'PublicCode');
-      const color     = normColor(txt(line, 'Presentation > Colour', 'Presentation Colour'));
-      const textColor = normColor(txt(line, 'Presentation > TextColour', 'Presentation TextColour'));
-      const operatorRef = line.querySelector(":scope > OperatorRef")?.getAttribute("ref") || null;
+    // 5) Line / FlexibleLine
+    await forEachMatch(RE_LINE, xml, 200, m => {
+      const id   = m[1];
+      const body = m[2];
+      const name      = getTag(body, 'Name');
+      const shortName = getTag(body, 'ShortName') || getTag(body, 'PublicCode');
+      const color     = normColor(getTag(body, 'Colour'));
+      const textColor = normColor(getTag(body, 'TextColour'));
+      const operatorRef = getRef(body, 'OperatorRef');
       lines.set(id, { name, shortName, color, textColor, operatorRef });
-    }
+    });
 
-    // ── Routes (Route → Line) ──
-    for (const route of doc.querySelectorAll('Route')) {
-      const rid  = route.getAttribute('id');
-      const lref = route.querySelector(':scope > LineRef')?.getAttribute('ref')
-                || route.querySelector(':scope > FlexibleLineRef')?.getAttribute('ref');
-      if (rid && lref) routeToLine.set(rid, lref);
-    }
+    // 6) Route
+    await forEachMatch(RE_ROUTE, xml, 500, m => {
+      const id   = m[1];
+      const body = m[2];
+      const lref = getRef(body, 'LineRef') || getRef(body, 'FlexibleLineRef');
+      if (lref) routeToLine.set(id, lref);
+    });
 
-    // ── JourneyPattern / ServiceJourneyPattern → Route ou Line ──
-    for (const jp of doc.querySelectorAll('JourneyPattern, ServiceJourneyPattern')) {
-      const jpid = jp.getAttribute('id');
-      if (!jpid) continue;
-      const direct = jp.querySelector(':scope > LineRef')?.getAttribute('ref')
-                  || jp.querySelector(':scope > FlexibleLineRef')?.getAttribute('ref');
+    // 7) JourneyPattern
+    await forEachMatch(RE_JP, xml, 500, m => {
+      const id   = m[1];
+      const body = m[2];
+      const direct = getRef(body, 'LineRef') || getRef(body, 'FlexibleLineRef');
       if (direct) {
-        jpToLine.set(jpid, direct);
+        jpToLine.set(id, direct);
       } else {
-        const rref = jp.querySelector(':scope > RouteRef')?.getAttribute('ref');
-        if (rref) jpToRoute.set(jpid, rref);
+        const rref = getRef(body, 'RouteRef');
+        if (rref) jpToRoute.set(id, rref);
       }
-    }
+    });
 
-    // ── ServiceJourney → trip IDs + collecte des refs pour résolution Line ──
-    // Note : on n'ajoute QUE l'id complet aux `trips`, jamais les segments
-    // intermédiaires (qui peuvent être ambigus entre réseaux). Les alias
-    // éventuels seront ajoutés en post-pass uniquement s'ils sont uniques.
-    nLoop = 0;
-    for (const sj of doc.querySelectorAll('ServiceJourney')) {
-      const id = sj.getAttribute('id');
-      if (!id) continue;
+    // 8) ServiceJourney
+    await forEachMatch(RE_SJ, xml, 500, m => {
+      const id   = m[1];
+      const body = m[2];
       trips.add(id);
-      const directLine = sj.querySelector(':scope > LineRef')?.getAttribute('ref')
-                      || sj.querySelector(':scope > FlexibleLineRef')?.getAttribute('ref');
-      const jpRef      = sj.querySelector(':scope > JourneyPatternRef')?.getAttribute('ref')
-                      || sj.querySelector(':scope > ServiceJourneyPatternRef')?.getAttribute('ref');
-      const routeRef   = sj.querySelector(':scope > RouteRef')?.getAttribute('ref');
-      const directOperator = sj.querySelector(':scope > OperatorRef')?.getAttribute('ref') || null;
+      const directLine     = getRef(body, 'LineRef') || getRef(body, 'FlexibleLineRef');
+      const jpRef          = getRef(body, 'JourneyPatternRef')
+                          || getRef(body, 'ServiceJourneyPatternRef');
+      const routeRef       = getRef(body, 'RouteRef');
+      const directOperator = getRef(body, 'OperatorRef');
       if (directLine || jpRef || routeRef || directOperator) {
         sjRefs.set(id, { directLine, jpRef, routeRef, directOperator });
       }
-      if (++nLoop % 500 === 0) await yieldToBrowser();
-    }
-    await yieldToBrowser();
+    });
 
-    // DatedServiceJourney : référence un ServiceJourney parent
-    nLoop = 0;
-    for (const dsj of doc.querySelectorAll('DatedServiceJourney')) {
-      const id = dsj.getAttribute('id');
-      if (!id) continue;
+    // 9) DatedServiceJourney
+    await forEachMatch(RE_DSJ, xml, 500, m => {
+      const id   = m[1];
+      const body = m[2];
       trips.add(id);
-      const sjRef = dsj.querySelector(':scope > ServiceJourneyRef')?.getAttribute('ref');
-      const directLine = dsj.querySelector(':scope > LineRef')?.getAttribute('ref');
+      const sjRef      = getRef(body, 'ServiceJourneyRef');
+      const directLine = getRef(body, 'LineRef');
       if (directLine) {
         sjRefs.set(id, { directLine });
       } else if (sjRef && sjRefs.has(sjRef)) {
         sjRefs.set(id, sjRefs.get(sjRef));
       }
-      if (++nLoop % 500 === 0) await yieldToBrowser();
-    }
+    });
+
+    // Libère la string XML avant le fichier suivant
+    xml = null;
   }
 
-  // Resolve SSP → StopPlace coords
+  // ── Resolve SSP → StopPlace ──
   for (const [sspId, placeId] of sspToPlace) {
     if (!stops.has(sspId)) {
       const c = placeCoords.get(placeId);
@@ -1698,7 +1709,7 @@ async function parseNeTExZip(zip) {
     }
   }
 
-  // ── Post-pass : résoudre la chaîne ServiceJourney → Line ──
+  // ── Résolution Line / Operator ──
   function resolveLine(refs) {
     if (!refs) return null;
     if (refs.directLine && lines.has(refs.directLine)) return refs.directLine;
@@ -1718,47 +1729,6 @@ async function parseNeTExZip(zip) {
     return null;
   }
 
-  // ── Génération des alias de trip_id, mais uniquement pour les alias UNIQUES ──
-  // On compte d'abord combien de ServiceJourney différents partagent chaque
-  // alias potentiel (segment local ou middle). Si un alias collide (>1 SJ),
-  // on l'écarte pour éviter d'attribuer un trip RT au mauvais ServiceJourney
-  // (typique : trip de train SNCF qui matche un trip Atoumod via un alias
-  // commun trop générique).
-  const aliasOwners = new Map(); // alias → Set(sjId)
-  function collectAlias(alias, owner) {
-    if (!alias) return;
-    let s = aliasOwners.get(alias);
-    if (!s) { s = new Set(); aliasOwners.set(alias, s); }
-    s.add(owner);
-  }
-
-  for (const sjId of trips) {
-    const parts = sjId.split(':');
-    if (parts.length >= 3) {
-      const localId  = parts[parts.length - 2];
-      const middleId = parts.slice(2, -1).join(':');
-      // On n'autorise un alias local que s'il est numérique ≥ 4 chiffres
-      // (évite les codes type SNCF "TER", "OUI" etc. qui sont trop génériques)
-      if (/^\d{4,}$/.test(localId)) collectAlias(localId, sjId);
-      // Le middleId est plus spécifique (souvent OperatorCode:trip:context)
-      // mais on le filtre quand même par longueur minimale
-      if (middleId && middleId.length >= 6) collectAlias(middleId, sjId);
-    }
-  }
-
-  // N'ajouter que les alias non-conflictuels
-  const uniqueAliases = new Map(); // alias → sjId (le seul propriétaire)
-  for (const [alias, owners] of aliasOwners) {
-    if (owners.size === 1) {
-      uniqueAliases.set(alias, [...owners][0]);
-    }
-  }
-
-  for (const [alias] of uniqueAliases) {
-    trips.add(alias);
-  }
-
-  // Résolution de l'agence (Operator) : direct sur SJ, sinon via Line
   function resolveAgency(refs, lineId) {
     if (!refs) return null;
     if (refs.directOperator && agencies.has(refs.directOperator)) return refs.directOperator;
@@ -1769,13 +1739,37 @@ async function parseNeTExZip(zip) {
     return null;
   }
 
+  // ── Alias uniques ──
+  const aliasOwners = new Map();
+  for (const sjId of trips) {
+    const parts = sjId.split(':');
+    if (parts.length >= 3) {
+      const localId  = parts[parts.length - 2];
+      const middleId = parts.slice(2, -1).join(':');
+      if (/^\d{4,}$/.test(localId)) {
+        let s = aliasOwners.get(localId);
+        if (!s) { s = new Set(); aliasOwners.set(localId, s); }
+        s.add(sjId);
+      }
+      if (middleId && middleId.length >= 6) {
+        let s = aliasOwners.get(middleId);
+        if (!s) { s = new Set(); aliasOwners.set(middleId, s); }
+        s.add(sjId);
+      }
+    }
+  }
+  const uniqueAliases = new Map();
+  for (const [alias, owners] of aliasOwners) {
+    if (owners.size === 1) uniqueAliases.set(alias, [...owners][0]);
+  }
+  for (const [alias] of uniqueAliases) trips.add(alias);
+
   for (const [sjId, refs] of sjRefs) {
     const lineId = resolveLine(refs);
     if (lineId) tripToLine.set(sjId, lineId);
     const agencyId = resolveAgency(refs, lineId);
     if (agencyId) tripToAgency.set(sjId, agencyId);
   }
-  // Propager Line + Agency aux alias uniques uniquement
   for (const [alias, ownerId] of uniqueAliases) {
     const lineId = tripToLine.get(ownerId);
     if (lineId) tripToLine.set(alias, lineId);
@@ -1783,23 +1777,16 @@ async function parseNeTExZip(zip) {
     if (agencyId) tripToAgency.set(alias, agencyId);
   }
 
-  // ── Si aucune agency déclarée, créer une agence par défaut ──
   if (agencies.size === 0) {
     agencies.set('_default_', { id: '_default_', name: 'Réseau' });
   }
 
-  // ── Annotation des stops avec leurs agences ──
-  // En NeTEx Profil France, on n'a pas de mapping direct stop→operator (à la
-  // différence du GTFS via stop_times). On déduit l'appartenance par préfixe
-  // d'id partagé avec les Operators déclarés. Par exemple, un stop
-  // ATOUMOD003:StopPoint:4138 sera rattaché à l'Operator dont l'id contient
-  // "ATOUMOD003".
+  // ── Annotation des stops avec leurs agences (par préfixe d'id) ──
   const agencyKeys = Array.from(agencies.keys());
   for (const stop of stops.values()) {
-    if (stop.agencies) continue; // peut être déjà annoté via alias
+    if (stop.agencies) continue;
     const matched = new Set();
     for (const aid of agencyKeys) {
-      // Extraire les segments distinctifs de l'agency id
       const aidParts = aid.split(':').filter(p => p.length >= 3);
       for (const part of aidParts) {
         if (stop.id.includes(part)) { matched.add(aid); break; }
@@ -1807,7 +1794,6 @@ async function parseNeTExZip(zip) {
     }
     stop.agencies = matched.size > 0 ? matched : new Set(['_default_']);
   }
-  // Garantir que l'agence par défaut existe si on en a besoin
   if (![...stops.values()].every(s => s.agencies.size > 0) && !agencies.has('_default_')) {
     agencies.set('_default_', { id: '_default_', name: 'Autre' });
   }
@@ -1823,6 +1809,7 @@ async function parseNeTExZip(zip) {
     agencies, tripToAgency
   };
 }
+
 
 // ════════════════════════════════════════════════════════
 //  RT FETCH + PARSE (GTFS-RT & SIRI)
