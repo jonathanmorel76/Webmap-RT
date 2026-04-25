@@ -414,6 +414,7 @@
       color: #24292e;
       font-family: 'Segoe UI', sans-serif;
       margin: 10px 14px;
+      max-width: 260px;
     }
 
     .popup-stop-name {
@@ -430,23 +431,46 @@
     }
 
     .popup-trip {
-      padding: 5px 0;
+      padding: 6px 0;
       border-top: 1px solid #e1e4e8;
     }
 
-    .popup-trip-id { font-size: 11px; font-weight: 600; }
+    .popup-trip-id {
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1.2;
+      display: flex;
+      align-items: baseline;
+      gap: 5px;
+      max-width: 100%;
+    }
     .popup-trip-id.match   { color: #1a7f37; }
     .popup-trip-id.nomatch { color: #cf222e; }
     .popup-trip-id.unknown { color: #8c959f; }
 
+    .popup-trip-icon { flex-shrink: 0; }
+
+    .popup-trip-name {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
     .popup-time { font-size: 11px; color: #8c959f; margin-top: 2px; }
 
     .popup-trip-sub {
-      font-size: 9px;
-      color: #8c959f;
+      font-size: 10px;
+      color: #afb8c1;
       font-weight: 400;
-      margin-top: 1px;
+      margin-top: 2px;
       font-style: normal;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 100%;
+      font-family: ui-monospace, 'SF Mono', Menlo, monospace;
     }
 
     .popup-rt-badge {
@@ -495,6 +519,55 @@
 
     /* countNoCoords inline color override */
     #countNoCoords { font-size: 10px; color: #8c959f; text-align: center; margin-top: 5px; }
+
+    /* ── Filtre agences (réseaux) ── */
+    .agency-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 4px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 12px;
+      transition: background 0.12s ease;
+    }
+    .agency-row:hover { background: #f6f8fa; }
+    .agency-row input[type="checkbox"] {
+      margin: 0;
+      flex-shrink: 0;
+      cursor: pointer;
+    }
+    .agency-name {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: #24292e;
+      font-weight: 500;
+    }
+    .agency-count {
+      font-size: 10px;
+      color: #8c959f;
+      flex-shrink: 0;
+      font-variant-numeric: tabular-nums;
+    }
+    .agency-rt-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      background: #2da44e;
+    }
+    .agency-row.no-rt {
+      opacity: 0.55;
+    }
+    .agency-row.no-rt .agency-name,
+    .agency-row.no-rt .agency-count {
+      color: #8c959f;
+    }
+    .agency-row.no-rt .agency-rt-dot {
+      background: #afb8c1;
+    }
 
     /* ── Bouton toggle sidebar (mobile) ── */
     #sidebarToggle {
@@ -689,9 +762,9 @@
       .leaflet-popup-content { margin: 12px 16px; }
       .popup-stop-name { font-size: 14px; }
       .popup-stop-id { font-size: 11px; }
-      .popup-trip { padding: 7px 0; }
-      .popup-trip-id { font-size: 13px; }
-      .popup-trip-sub { font-size: 10px; }
+      .popup-trip { padding: 8px 0; }
+      .popup-trip-id { font-size: 14px; }
+      .popup-trip-sub { font-size: 11px; }
       .rt-time { font-size: 12px; }
       .rt-label { font-size: 9px; }
 
@@ -784,25 +857,42 @@
     <div id="refreshCountdown"></div>
   </div>
 
+  <!-- Filtre par réseau (agences) -->
+  <div class="section" id="agencyFilterSection" style="display:none">
+    <div class="section-title">
+      Réseaux
+      <span style="float:right;font-size:11px;font-weight:400;color:#57606a">
+        <a href="#" onclick="toggleAllAgencies(true);return false" style="color:#0969da;text-decoration:none">tout</a>
+        ·
+        <a href="#" onclick="toggleAllAgencies(false);return false" style="color:#0969da;text-decoration:none">aucun</a>
+      </span>
+    </div>
+    <div id="agencyFilterList"></div>
+    <div class="hint" style="margin-top:6px">
+      Les réseaux <span style="color:#8c959f">grisés</span> n'ont pas de RT remonté lors du dernier refresh.
+    </div>
+  </div>
+
   <!-- Statistiques -->
   <div class="section">
     <div class="section-title">Statistiques</div>
     <div class="stats-grid">
       <div class="stat-card green">
         <div class="stat-value" id="countGreen">—</div>
-        <div class="stat-label">Correspondants</div>
+        <div class="stat-label">Avec RT</div>
       </div>
       <div class="stat-card red">
         <div class="stat-value" id="countRed">—</div>
-        <div class="stat-label">Hors offre</div>
-      </div>
-      <div class="stat-card orange">
-        <div class="stat-value" id="countMixed">—</div>
-        <div class="stat-label">Mixtes</div>
+        <div class="stat-label">Sans RT</div>
       </div>
       <div class="stat-card blue">
         <div class="stat-value" id="countTotal">—</div>
-        <div class="stat-label">Arrêts affichés</div>
+        <div class="stat-label">Total arrêts</div>
+      </div>
+      <!-- Compteur masqué : conservé pour compatibilité ancien code -->
+      <div class="stat-card orange" style="display:none">
+        <div class="stat-value" id="countMixed">—</div>
+        <div class="stat-label">—</div>
       </div>
     </div>
     <div id="countNoCoords"></div>
@@ -814,21 +904,14 @@
     <div class="section-title">Légende</div>
     <div class="legend-item">
       <div class="legend-dot dot-green"></div>
-      <span>Tous les trip_id correspondent à l'offre théorique</span>
+      <span>Au moins un trip RT match l'offre théorique</span>
     </div>
     <div class="legend-item">
       <div class="legend-dot dot-red"></div>
-      <span>Aucun trip_id ne correspond à l'offre théorique</span>
-    </div>
-    <div class="legend-item">
-      <div class="legend-dot dot-orange"></div>
-      <span>Correspondance partielle (mix de trips)</span>
-    </div>
-    <div class="legend-item">
-      <div class="legend-dot dot-blue"></div>
-      <span>Offre théorique non chargée</span>
+      <span>Aucun trip RT (ou aucun match)</span>
     </div>
     <div class="hint" style="margin-top:4px">
+      Les arrêts affichés sont ceux de l'offre théorique.<br>
       L'heure affichée est le prochain départ RT.<br>
       Cliquer sur un arrêt pour voir le détail des trips.
     </div>
@@ -1072,6 +1155,8 @@ async function loadGTFSFile(input) {
   try {
     let zip = await JSZip.loadAsync(file);
     gtfsData = await parseGTFSZip(zip);
+    selectedAgencies = new Set();
+    rebuildAgencyFilter();
     zip = null; // libère la mémoire du ZIP
     setStatus('gtfsStatus',
       `✓ ${gtfsData.tripCount.toLocaleString('fr-FR')} trajets · ${gtfsData.stopCount.toLocaleString('fr-FR')} arrêts`,
@@ -1083,6 +1168,8 @@ async function loadGTFSFile(input) {
     document.getElementById('gtfsBadge').innerHTML =
       `<span class="badge badge-red">✗ Échec du chargement</span>`;
     gtfsData = null;
+    selectedAgencies = new Set();
+    rebuildAgencyFilter();
   }
 }
 
@@ -1098,6 +1185,8 @@ async function loadGTFSUrl() {
     let zip = await JSZip.loadAsync(blob);
     blob = null; // le blob brut peut être libéré dès que JSZip a indexé
     gtfsData = await parseGTFSZip(zip);
+    selectedAgencies = new Set();
+    rebuildAgencyFilter();
     zip = null;
     setStatus('gtfsStatus',
       `✓ ${gtfsData.tripCount.toLocaleString('fr-FR')} trajets · ${gtfsData.stopCount.toLocaleString('fr-FR')} arrêts`,
@@ -1109,6 +1198,8 @@ async function loadGTFSUrl() {
     document.getElementById('gtfsBadge').innerHTML =
       `<span class="badge badge-red">✗ Échec</span>`;
     gtfsData = null;
+    selectedAgencies = new Set();
+    rebuildAgencyFilter();
   }
 }
 
@@ -1138,16 +1229,20 @@ async function parseGTFSZip(zip) {
     const lat = parseFloat(row.stop_lat);
     const lon = parseFloat(row.stop_lon);
     if (row.stop_id && !isNaN(lat) && !isNaN(lon)) {
-      stops.set(row.stop_id.trim(), {
+      const sid = row.stop_id.trim();
+      stops.set(sid, {
+        id: sid,
         lat, lon,
-        name: (row.stop_name || row.stop_id).trim()
+        name: (row.stop_name || sid).trim()
       });
     }
     if (++count % 5000 === 0) await yieldToBrowser();
   }
 
-  const tripToRoute = new Map(); // trip_id → route_id
-  const routeNames  = new Map(); // route_id → display name
+  const tripToRoute     = new Map(); // trip_id → route_id
+  const tripShortNames  = new Map(); // trip_id → trip_short_name (utile pour les trains)
+  const routeNames      = new Map(); // route_id → display name (route_short_name)
+  const routeTypes      = new Map(); // route_id → route_type (numérique GTFS)
 
   // ── trips.txt ──
   const tripsFile = findFile('trips.txt');
@@ -1160,13 +1255,38 @@ async function parseGTFSZip(zip) {
   count = 0;
   for (const row of tripsRows) {
     if (row.trip_id) {
-      trips.add(row.trip_id.trim());
-      if (row.route_id) tripToRoute.set(row.trip_id.trim(), row.route_id.trim());
+      const tid = row.trip_id.trim();
+      trips.add(tid);
+      if (row.route_id) tripToRoute.set(tid, row.route_id.trim());
+      if (row.trip_short_name && row.trip_short_name.trim()) {
+        tripShortNames.set(tid, row.trip_short_name.trim());
+      }
     }
     if (++count % 10000 === 0) await yieldToBrowser();
   }
 
+  // ── agency.txt ──
+  const agencies     = new Map(); // agency_id → { id, name }
+  const agencyFile = findFile('agency.txt');
+  if (agencyFile) {
+    setStatus('gtfsStatus', '⟳ Lecture des agences…', 'loading');
+    await yieldToBrowser();
+    const agencyCSV = stripBOM(await agencyFile.async('string'));
+    const { data: agencyRows } = Papa.parse(agencyCSV, { header: true, skipEmptyLines: true });
+    for (const row of agencyRows) {
+      // agency_id est optionnel si une seule agence ; on lui donne un id par défaut
+      const aid  = (row.agency_id || '').trim() || '_default_';
+      const name = (row.agency_name || aid).trim();
+      agencies.set(aid, { id: aid, name });
+    }
+  }
+  // Si agency.txt absent ou vide, on crée une agence factice
+  if (agencies.size === 0) {
+    agencies.set('_default_', { id: '_default_', name: 'Agence' });
+  }
+
   // ── routes.txt (optionnel) ──
+  const routeToAgency = new Map(); // route_id → agency_id
   const routesFile = findFile('routes.txt');
   if (routesFile) {
     setStatus('gtfsStatus', '⟳ Lecture des lignes…', 'loading');
@@ -1175,16 +1295,74 @@ async function parseGTFSZip(zip) {
     const { data: routesRows } = Papa.parse(routesCSV, { header: true, skipEmptyLines: true });
     for (const row of routesRows) {
       if (row.route_id) {
+        const rid  = row.route_id.trim();
         const name = (row.route_short_name || row.route_long_name || row.route_id).trim();
-        routeNames.set(row.route_id.trim(), name);
+        routeNames.set(rid, name);
+        if (row.route_type !== undefined && row.route_type !== '') {
+          const rt = parseInt(row.route_type, 10);
+          if (!isNaN(rt)) routeTypes.set(rid, rt);
+        }
+        const aid = (row.agency_id || '').trim() || '_default_';
+        routeToAgency.set(rid, aid);
       }
     }
+  }
+
+  // ── trip → agency_id (via route → agency) ──
+  const tripToAgency = new Map();
+  for (const [tid, rid] of tripToRoute) {
+    const aid = routeToAgency.get(rid);
+    if (aid) tripToAgency.set(tid, aid);
+  }
+
+  // ── stop → Set<agency_id> via stop_times.txt (lecture optimisée) ──
+  // Pour ne pas exploser la mémoire mobile sur les gros GTFS (stop_times peut
+  // faire plusieurs centaines de Mo), on ne stocke que la première agence
+  // rencontrée pour chaque stop, ce qui suffit pour le filtrage.
+  const stopToAgencies = new Map(); // stop_id → Set<agency_id>
+  const stopTimesFile = findFile('stop_times.txt');
+  if (stopTimesFile && tripToAgency.size > 0) {
+    setStatus('gtfsStatus', '⟳ Liaison arrêts ↔ agences…', 'loading');
+    await yieldToBrowser();
+    // Streaming Papa.parse pour limiter la mémoire
+    const stopTimesCSV = stripBOM(await stopTimesFile.async('string'));
+    await yieldToBrowser();
+    let lineCount = 0;
+    Papa.parse(stopTimesCSV, {
+      header: true,
+      skipEmptyLines: true,
+      step: (results) => {
+        const row = results.data;
+        const sid = row.stop_id?.trim();
+        const tid = row.trip_id?.trim();
+        if (!sid || !tid) return;
+        const aid = tripToAgency.get(tid);
+        if (!aid) return;
+        let set = stopToAgencies.get(sid);
+        if (!set) { set = new Set(); stopToAgencies.set(sid, set); }
+        set.add(aid);
+        lineCount++;
+      }
+    });
   }
 
   if (!stops.size) throw new Error('Aucun arrêt valide trouvé dans stops.txt');
   if (!trips.size) throw new Error('Aucun trajet trouvé dans trips.txt');
 
-  return { stops, trips, stopCount: stops.size, tripCount: trips.size, tripToRoute, routeNames };
+  // Annoter chaque stop avec ses agences (pour filtrage rapide au render)
+  for (const stop of stops.values()) {
+    stop.agencies = stopToAgencies.get(stop.id) || new Set(['_default_']);
+  }
+
+  // Liste unique des stops (en GTFS chaque stop_id est unique, pas d'alias)
+  const stopList = Array.from(stops.values());
+
+  return {
+    stops, trips, stopList,
+    stopCount: stops.size, tripCount: trips.size,
+    tripToRoute, routeNames, routeTypes, tripShortNames,
+    agencies, tripToAgency
+  };
 }
 
 // ════════════════════════════════════════════════════════
@@ -1199,6 +1377,8 @@ async function loadNeTExFile(input) {
   try {
     const zip = await JSZip.loadAsync(file);
     gtfsData = await parseNeTExZip(zip);
+    selectedAgencies = new Set();
+    rebuildAgencyFilter();
     setStatus('gtfsStatus',
       `✓ ${gtfsData.tripCount.toLocaleString('fr-FR')} trajets · ${gtfsData.stopCount.toLocaleString('fr-FR')} arrêts`,
       'success');
@@ -1209,6 +1389,8 @@ async function loadNeTExFile(input) {
     document.getElementById('gtfsBadge').innerHTML =
       `<span class="badge badge-red">✗ Échec NeTEx</span>`;
     gtfsData = null;
+    selectedAgencies = new Set();
+    rebuildAgencyFilter();
   }
 }
 
@@ -1222,6 +1404,8 @@ async function loadNeTExUrl() {
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const zip = await JSZip.loadAsync(await resp.blob());
     gtfsData = await parseNeTExZip(zip);
+    selectedAgencies = new Set();
+    rebuildAgencyFilter();
     setStatus('gtfsStatus',
       `✓ ${gtfsData.tripCount.toLocaleString('fr-FR')} trajets · ${gtfsData.stopCount.toLocaleString('fr-FR')} arrêts`,
       'success');
@@ -1232,6 +1416,8 @@ async function loadNeTExUrl() {
     document.getElementById('gtfsBadge').innerHTML =
       `<span class="badge badge-red">✗ Échec</span>`;
     gtfsData = null;
+    selectedAgencies = new Set();
+    rebuildAgencyFilter();
   }
 }
 
@@ -1240,6 +1426,16 @@ async function parseNeTExZip(zip) {
   const trips     = new Set();
   const placeCoords  = new Map(); // StopPlace id  → {lat, lon, name}
   const sspToPlace   = new Map(); // ScheduledStopPoint id → StopPlace id
+
+  // Lignes et chaîne de résolution ServiceJourney → Line
+  const lines       = new Map(); // Line id → { name, shortName, color, textColor, operatorRef }
+  const routeToLine = new Map(); // Route id → Line id
+  const jpToLine    = new Map(); // JourneyPattern id → Line id (résolu en post-pass)
+  const jpToRoute   = new Map(); // JourneyPattern id → Route id (intermédiaire)
+  const sjRefs      = new Map(); // ServiceJourney id → { directLine, jpRef, routeRef, directOperator }
+  const tripToLine  = new Map(); // ServiceJourney id (et alias) → Line id (résolu en post-pass)
+  const agencies    = new Map(); // Operator id → { id, name }
+  const tripToAgency = new Map(); // ServiceJourney id (et alias) → Operator id
 
   const xmlFiles = Object.values(zip.files)
     .filter(f => !f.dir && /\.xml$/i.test(f.name))
@@ -1255,20 +1451,58 @@ async function parseNeTExZip(zip) {
     return '';
   }
 
+  // Normalise une couleur hex (ajoute # si absent)
+  function normColor(c) {
+    if (!c) return null;
+    const t = c.trim();
+    if (!t) return null;
+    return /^#/.test(t) ? t : '#' + t;
+  }
+
+  // Détection des alias ambigus : on tient un Set des alias qui ont été créés
+  // pour un objet, puis si on essaie d'en créer un deuxième pour un autre objet,
+  // on supprime l'alias existant et on marque le code comme ambigu.
+  const ambiguousStopAliases = new Set(); // codes à ne plus jamais réutiliser
+  const stopList = []; // liste unique des stops (sans alias)
+  const seenStops = new Set(); // pour dédupliquer stopList par id principal
+
+  function tryAddStopAlias(alias, obj) {
+    if (!alias) return;
+    if (ambiguousStopAliases.has(alias)) return; // déjà conflictuel
+    const existing = stops.get(alias);
+    if (existing && existing !== obj) {
+      // Conflit : deux stops différents partagent cet alias → on le retire
+      stops.delete(alias);
+      ambiguousStopAliases.add(alias);
+    } else if (!existing) {
+      stops.set(alias, obj);
+    }
+  }
+
   function indexStop(id, lat, lon, name) {
     if (!id || isNaN(lat) || isNaN(lon)) return;
-    const obj = { lat, lon, name: name || id };
+    // Si l'id est déjà connu, on ne re-crée pas l'objet (économise mémoire)
+    if (stops.has(id)) return;
+    const obj = { id, lat, lon, name: name || id };
     stops.set(id, obj);
-    // Index every purely-numeric segment ≥ 3 digits (local stop code)
-    // This lets FR:76481:ZE:4138:ATOUMOD003 (RT) match ATOUMOD003:StopPoint:4138 (NeTEx)
-    const parts = id.split(':');
-    for (const p of parts) {
-      if (/^\d{3,}$/.test(p) && !stops.has(p)) stops.set(p, obj);
+
+    // Liste unique des stops (sans alias) pour itération ultérieure
+    if (!seenStops.has(id)) {
+      seenStops.add(id);
+      stopList.push(obj);
     }
-    // Legacy: second-to-last segment
+
+    // Pour FR:76481:ZE:4138:ATOUMOD003, le seul segment réellement local et
+    // non-ambigu est l'avant-dernier (ici "4138" = id local du quai dans le
+    // référentiel). On l'indexe uniquement s'il n'entre pas en conflit.
+    // On ignore volontairement :
+    //   - les codes communes (76481), trop génériques
+    //   - les codes type (ZE, ATOUMOD003) qui désignent un type/réseau
+    //   - les segments de moins de 4 chiffres
+    const parts = id.split(':');
     if (parts.length >= 3) {
       const local = parts[parts.length - 2];
-      if (local && !stops.has(local)) stops.set(local, obj);
+      if (/^\d{4,}$/.test(local)) tryAddStopAlias(local, obj);
     }
   }
 
@@ -1306,15 +1540,84 @@ async function parseNeTExZip(zip) {
       if (sspRef && placeRef) sspToPlace.set(sspRef, placeRef);
     }
 
-    // ServiceJourney → trip IDs
+    // ── Lignes (Line / FlexibleLine) ──
+    // <Line id="..."><Name>Bus 1</Name><ShortName>1</ShortName>
+    //   <Presentation><Colour>FF0000</Colour><TextColour>FFFFFF</TextColour></Presentation>
+    // </Line>
+
+    // Operators (entreprise exploitante)
+    for (const op of doc.querySelectorAll("Operator")) {
+      const oid = op.getAttribute("id");
+      if (!oid) continue;
+      const oname = txt(op, ":scope > Name", "Name")
+                 || txt(op, "CompanyNumber", "PrivateCode")
+                 || oid;
+      agencies.set(oid, { id: oid, name: oname });
+    }
+    for (const line of doc.querySelectorAll('Line, FlexibleLine')) {
+      const id = line.getAttribute('id');
+      if (!id) continue;
+      const name      = txt(line, ':scope > Name', 'Name');
+      const shortName = txt(line, ':scope > ShortName', 'ShortName',
+                                  ':scope > PublicCode', 'PublicCode');
+      const color     = normColor(txt(line, 'Presentation > Colour', 'Presentation Colour'));
+      const textColor = normColor(txt(line, 'Presentation > TextColour', 'Presentation TextColour'));
+      const operatorRef = line.querySelector(":scope > OperatorRef")?.getAttribute("ref") || null;
+      lines.set(id, { name, shortName, color, textColor, operatorRef });
+    }
+
+    // ── Routes (Route → Line) ──
+    for (const route of doc.querySelectorAll('Route')) {
+      const rid  = route.getAttribute('id');
+      const lref = route.querySelector(':scope > LineRef')?.getAttribute('ref')
+                || route.querySelector(':scope > FlexibleLineRef')?.getAttribute('ref');
+      if (rid && lref) routeToLine.set(rid, lref);
+    }
+
+    // ── JourneyPattern / ServiceJourneyPattern → Route ou Line ──
+    for (const jp of doc.querySelectorAll('JourneyPattern, ServiceJourneyPattern')) {
+      const jpid = jp.getAttribute('id');
+      if (!jpid) continue;
+      const direct = jp.querySelector(':scope > LineRef')?.getAttribute('ref')
+                  || jp.querySelector(':scope > FlexibleLineRef')?.getAttribute('ref');
+      if (direct) {
+        jpToLine.set(jpid, direct);
+      } else {
+        const rref = jp.querySelector(':scope > RouteRef')?.getAttribute('ref');
+        if (rref) jpToRoute.set(jpid, rref);
+      }
+    }
+
+    // ── ServiceJourney → trip IDs + collecte des refs pour résolution Line ──
+    // Note : on n'ajoute QUE l'id complet aux `trips`, jamais les segments
+    // intermédiaires (qui peuvent être ambigus entre réseaux). Les alias
+    // éventuels seront ajoutés en post-pass uniquement s'ils sont uniques.
     for (const sj of doc.querySelectorAll('ServiceJourney')) {
       const id = sj.getAttribute('id');
       if (!id) continue;
       trips.add(id);
-      const parts = id.split(':');
-      if (parts.length >= 3) {
-        trips.add(parts[parts.length - 2]); // local numeric part
-        trips.add(parts.slice(2, -1).join(':')); // middle segments
+      const directLine = sj.querySelector(':scope > LineRef')?.getAttribute('ref')
+                      || sj.querySelector(':scope > FlexibleLineRef')?.getAttribute('ref');
+      const jpRef      = sj.querySelector(':scope > JourneyPatternRef')?.getAttribute('ref')
+                      || sj.querySelector(':scope > ServiceJourneyPatternRef')?.getAttribute('ref');
+      const routeRef   = sj.querySelector(':scope > RouteRef')?.getAttribute('ref');
+      const directOperator = sj.querySelector(':scope > OperatorRef')?.getAttribute('ref') || null;
+      if (directLine || jpRef || routeRef || directOperator) {
+        sjRefs.set(id, { directLine, jpRef, routeRef, directOperator });
+      }
+    }
+
+    // DatedServiceJourney : référence un ServiceJourney parent
+    for (const dsj of doc.querySelectorAll('DatedServiceJourney')) {
+      const id = dsj.getAttribute('id');
+      if (!id) continue;
+      trips.add(id);
+      const sjRef = dsj.querySelector(':scope > ServiceJourneyRef')?.getAttribute('ref');
+      const directLine = dsj.querySelector(':scope > LineRef')?.getAttribute('ref');
+      if (directLine) {
+        sjRefs.set(id, { directLine });
+      } else if (sjRef && sjRefs.has(sjRef)) {
+        sjRefs.set(id, sjRefs.get(sjRef));
       }
     }
   }
@@ -1327,9 +1630,130 @@ async function parseNeTExZip(zip) {
     }
   }
 
+  // ── Post-pass : résoudre la chaîne ServiceJourney → Line ──
+  function resolveLine(refs) {
+    if (!refs) return null;
+    if (refs.directLine && lines.has(refs.directLine)) return refs.directLine;
+    if (refs.routeRef) {
+      const lref = routeToLine.get(refs.routeRef);
+      if (lref && lines.has(lref)) return lref;
+    }
+    if (refs.jpRef) {
+      const lref = jpToLine.get(refs.jpRef);
+      if (lref && lines.has(lref)) return lref;
+      const rref = jpToRoute.get(refs.jpRef);
+      if (rref) {
+        const lref2 = routeToLine.get(rref);
+        if (lref2 && lines.has(lref2)) return lref2;
+      }
+    }
+    return null;
+  }
+
+  // ── Génération des alias de trip_id, mais uniquement pour les alias UNIQUES ──
+  // On compte d'abord combien de ServiceJourney différents partagent chaque
+  // alias potentiel (segment local ou middle). Si un alias collide (>1 SJ),
+  // on l'écarte pour éviter d'attribuer un trip RT au mauvais ServiceJourney
+  // (typique : trip de train SNCF qui matche un trip Atoumod via un alias
+  // commun trop générique).
+  const aliasOwners = new Map(); // alias → Set(sjId)
+  function collectAlias(alias, owner) {
+    if (!alias) return;
+    let s = aliasOwners.get(alias);
+    if (!s) { s = new Set(); aliasOwners.set(alias, s); }
+    s.add(owner);
+  }
+
+  for (const sjId of trips) {
+    const parts = sjId.split(':');
+    if (parts.length >= 3) {
+      const localId  = parts[parts.length - 2];
+      const middleId = parts.slice(2, -1).join(':');
+      // On n'autorise un alias local que s'il est numérique ≥ 4 chiffres
+      // (évite les codes type SNCF "TER", "OUI" etc. qui sont trop génériques)
+      if (/^\d{4,}$/.test(localId)) collectAlias(localId, sjId);
+      // Le middleId est plus spécifique (souvent OperatorCode:trip:context)
+      // mais on le filtre quand même par longueur minimale
+      if (middleId && middleId.length >= 6) collectAlias(middleId, sjId);
+    }
+  }
+
+  // N'ajouter que les alias non-conflictuels
+  const uniqueAliases = new Map(); // alias → sjId (le seul propriétaire)
+  for (const [alias, owners] of aliasOwners) {
+    if (owners.size === 1) {
+      uniqueAliases.set(alias, [...owners][0]);
+    }
+  }
+
+  for (const [alias] of uniqueAliases) {
+    trips.add(alias);
+  }
+
+  // Résolution de l'agence (Operator) : direct sur SJ, sinon via Line
+  function resolveAgency(refs, lineId) {
+    if (!refs) return null;
+    if (refs.directOperator && agencies.has(refs.directOperator)) return refs.directOperator;
+    if (lineId) {
+      const line = lines.get(lineId);
+      if (line?.operatorRef && agencies.has(line.operatorRef)) return line.operatorRef;
+    }
+    return null;
+  }
+
+  for (const [sjId, refs] of sjRefs) {
+    const lineId = resolveLine(refs);
+    if (lineId) tripToLine.set(sjId, lineId);
+    const agencyId = resolveAgency(refs, lineId);
+    if (agencyId) tripToAgency.set(sjId, agencyId);
+  }
+  // Propager Line + Agency aux alias uniques uniquement
+  for (const [alias, ownerId] of uniqueAliases) {
+    const lineId = tripToLine.get(ownerId);
+    if (lineId) tripToLine.set(alias, lineId);
+    const agencyId = tripToAgency.get(ownerId);
+    if (agencyId) tripToAgency.set(alias, agencyId);
+  }
+
+  // ── Si aucune agency déclarée, créer une agence par défaut ──
+  if (agencies.size === 0) {
+    agencies.set('_default_', { id: '_default_', name: 'Réseau' });
+  }
+
+  // ── Annotation des stops avec leurs agences ──
+  // En NeTEx Profil France, on n'a pas de mapping direct stop→operator (à la
+  // différence du GTFS via stop_times). On déduit l'appartenance par préfixe
+  // d'id partagé avec les Operators déclarés. Par exemple, un stop
+  // ATOUMOD003:StopPoint:4138 sera rattaché à l'Operator dont l'id contient
+  // "ATOUMOD003".
+  const agencyKeys = Array.from(agencies.keys());
+  for (const stop of stops.values()) {
+    if (stop.agencies) continue; // peut être déjà annoté via alias
+    const matched = new Set();
+    for (const aid of agencyKeys) {
+      // Extraire les segments distinctifs de l'agency id
+      const aidParts = aid.split(':').filter(p => p.length >= 3);
+      for (const part of aidParts) {
+        if (stop.id.includes(part)) { matched.add(aid); break; }
+      }
+    }
+    stop.agencies = matched.size > 0 ? matched : new Set(['_default_']);
+  }
+  // Garantir que l'agence par défaut existe si on en a besoin
+  if (![...stops.values()].every(s => s.agencies.size > 0) && !agencies.has('_default_')) {
+    agencies.set('_default_', { id: '_default_', name: 'Autre' });
+  }
+
   if (!trips.size) throw new Error('Aucun ServiceJourney trouvé dans les XML NeTEx');
 
-  return { stops, trips, stopCount: stops.size, tripCount: trips.size };
+  return {
+    stops, trips, stopList,
+    stopCount: stopList.length,
+    tripCount: trips.size,
+    tripToLine,
+    lines,
+    agencies, tripToAgency
+  };
 }
 
 // ════════════════════════════════════════════════════════
@@ -1623,13 +2047,25 @@ function makeIcon(color, label, zoom) {
 }
 
 function buildPopup(stopInfo, stopId, updates) {
-  // Tri par heure de passage croissante (null en dernier)
-  const sorted = [...updates].sort((a, b) => {
+  // Heure courante en secondes UNIX (avec petite tolérance pour les passages "à l'instant")
+  const nowSec = Math.floor(Date.now() / 1000);
+  const PAST_TOLERANCE = 60; // on garde les passages dont l'heure est < 1 min dans le passé
+
+  // 1) Solde les passages déjà terminés (heure < maintenant - tolérance)
+  const upcoming = updates.filter(u => {
+    if (u.time == null) return true; // sans heure, on garde
+    return u.time >= nowSec - PAST_TOLERANCE;
+  });
+
+  // 2) Tri par heure de passage croissante (null en dernier)
+  const sorted = upcoming.sort((a, b) => {
     if (a.time == null && b.time == null) return 0;
     if (a.time == null) return 1;
     if (b.time == null) return -1;
     return a.time - b.time;
   });
+
+  const skipped = updates.length - sorted.length;
 
   const rows = sorted.map(u => {
     const t = fmtTime(u.time);
@@ -1637,18 +2073,59 @@ function buildPopup(stopInfo, stopId, updates) {
     const cls = u.matched === true ? 'match' : u.matched === false ? 'nomatch' : 'unknown';
     const icon = u.matched === true ? '✓' : u.matched === false ? '✗' : '?';
 
-    // Résolution du nom de ligne depuis routes.txt
-    let routeName = null;
-    if (gtfsData?.tripToRoute && gtfsData?.routeNames) {
-      const routeId = gtfsData.tripToRoute.get(u.tripId);
-      if (routeId) routeName = gtfsData.routeNames.get(routeId) || null;
+    // Résolution du nom à afficher (priorité décroissante) :
+    //   1. NeTEx — Line.shortName puis Line.name
+    //   2. GTFS  — trip_short_name si train, sinon route_short_name
+    //   3. Fallback → trip_id
+    let displayName = null;
+    let lineColor   = null;
+    let lineTextColor = null;
+
+    // 1) NeTEx — résolution Line via tripToLine + couleurs
+    if (gtfsData?.tripToLine && gtfsData?.lines) {
+      const lineId = gtfsData.tripToLine.get(u.tripId);
+      if (lineId) {
+        const line = gtfsData.lines.get(lineId);
+        if (line) {
+          displayName    = line.shortName || line.name || null;
+          lineColor      = line.color;
+          lineTextColor  = line.textColor;
+        }
+      }
     }
-    const displayName = routeName !== null ? routeName : u.tripId;
-    const hasRouteName = routeName !== null;
+
+    // 2) GTFS — résolution route + type pour distinguer trains
+    let routeId   = null;
+    let routeType = null;
+    if (!displayName && gtfsData?.tripToRoute) {
+      routeId = gtfsData.tripToRoute.get(u.tripId) || null;
+      if (routeId && gtfsData.routeTypes) {
+        routeType = gtfsData.routeTypes.get(routeId);
+      }
+    }
+    const isRail = routeType === 2 || (routeType >= 100 && routeType <= 117);
+    if (!displayName && isRail && gtfsData?.tripShortNames) {
+      const tsn = gtfsData.tripShortNames.get(u.tripId);
+      if (tsn) displayName = tsn;
+    }
+    if (!displayName && routeId && gtfsData?.routeNames) {
+      displayName = gtfsData.routeNames.get(routeId) || null;
+    }
+
+    const hasResolved = displayName !== null;
+    if (!displayName) displayName = u.tripId;
+
+    // Badge coloré pour le nom de ligne si couleur dispo (NeTEx)
+    const namePart = lineColor
+      ? `<span class="popup-trip-name" style="background:${lineColor};color:${lineTextColor || '#fff'};padding:1px 7px;border-radius:4px;font-weight:700">${displayName}</span>`
+      : `<span class="popup-trip-name">${displayName}</span>`;
 
     return `<div class="popup-trip">
-      <div class="popup-trip-id ${cls}">${icon} ${displayName}</div>
-      ${hasRouteName ? `<div class="popup-trip-sub">${u.tripId}</div>` : ''}
+      <div class="popup-trip-id ${cls}">
+        <span class="popup-trip-icon">${icon}</span>
+        ${namePart}
+      </div>
+      ${hasResolved ? `<div class="popup-trip-sub" title="${u.tripId}">${u.tripId}</div>` : ''}
       ${t ? `<div style="margin-top:3px"><span class="popup-rt-badge">
         <span class="rt-dot"></span>
         <span class="rt-label">EN DIRECT</span>
@@ -1657,9 +2134,14 @@ function buildPopup(stopInfo, stopId, updates) {
     </div>`;
   }).join('');
 
+  const skippedNote = skipped > 0
+    ? `<div style="font-size:10px;color:#8c959f;margin-top:6px;font-style:italic">${skipped} passage${skipped > 1 ? 's' : ''} déjà terminé${skipped > 1 ? 's' : ''}, masqué${skipped > 1 ? 's' : ''}.</div>`
+    : '';
+
   return `<div class="popup-stop-name">${stopInfo.name}</div>
     <div class="popup-stop-id">stop_id : ${stopId}</div>
-    ${rows}`;
+    ${rows || '<div style="font-size:11px;color:#8c959f;font-style:italic;padding:8px 0">Tous les passages de cet arrêt sont terminés.</div>'}
+    ${skippedNote}`;
 }
 
 // ── Stop search ─────────────────────────────────────────
@@ -1768,65 +2250,210 @@ function closeSidebar() {
 }
 
 // ════════════════════════════════════════════════════════
+//  FILTRE PAR AGENCE / RÉSEAU
+// ════════════════════════════════════════════════════════
+
+// Set des agences sélectionnées (id). Modifié par les checkboxes.
+let selectedAgencies = new Set();
+// Set des agences ayant remonté du RT au dernier refresh (id).
+let agenciesWithRT = new Set();
+
+// Reconstruit la liste de cases à cocher dans la sidebar à partir de gtfsData.
+// Appelée après le chargement de l'offre théorique.
+function rebuildAgencyFilter() {
+  const section = document.getElementById('agencyFilterSection');
+  const list    = document.getElementById('agencyFilterList');
+  if (!gtfsData?.agencies || gtfsData.agencies.size === 0) {
+    section.style.display = 'none';
+    return;
+  }
+  section.style.display = '';
+
+  // Compter les arrêts par agence
+  const stopsByAgency = new Map();
+  for (const stop of gtfsData.stopList) {
+    for (const aid of stop.agencies) {
+      stopsByAgency.set(aid, (stopsByAgency.get(aid) || 0) + 1);
+    }
+  }
+
+  // Tri des agences par nom
+  const sorted = [...gtfsData.agencies.values()].sort((a, b) =>
+    a.name.localeCompare(b.name, 'fr')
+  );
+
+  // Par défaut, toutes les agences sont cochées
+  if (selectedAgencies.size === 0) {
+    selectedAgencies = new Set(sorted.map(a => a.id));
+  }
+
+  list.innerHTML = sorted.map(a => {
+    const count = stopsByAgency.get(a.id) || 0;
+    const checked = selectedAgencies.has(a.id) ? 'checked' : '';
+    const noRt = !agenciesWithRT.has(a.id) ? 'no-rt' : '';
+    return `<label class="agency-row ${noRt}" data-agency="${a.id.replace(/"/g, '&quot;')}">
+      <input type="checkbox" ${checked} onchange="toggleAgency('${a.id.replace(/'/g, "\\'")}', this.checked)">
+      <span class="agency-rt-dot"></span>
+      <span class="agency-name" title="${a.name}">${a.name}</span>
+      <span class="agency-count">${count.toLocaleString('fr-FR')}</span>
+    </label>`;
+  }).join('');
+}
+
+// Met à jour uniquement le grisage des agences (sans reconstruire la liste)
+// quand le RT vient de remonter
+function updateAgencyRTState() {
+  document.querySelectorAll('.agency-row').forEach(row => {
+    const aid = row.getAttribute('data-agency');
+    if (agenciesWithRT.has(aid)) row.classList.remove('no-rt');
+    else row.classList.add('no-rt');
+  });
+}
+
+function toggleAgency(agencyId, checked) {
+  if (checked) selectedAgencies.add(agencyId);
+  else selectedAgencies.delete(agencyId);
+  if (lastStopMap) renderStops(lastStopMap);
+}
+
+function toggleAllAgencies(all) {
+  if (!gtfsData?.agencies) return;
+  if (all) selectedAgencies = new Set(gtfsData.agencies.keys());
+  else selectedAgencies = new Set();
+  // Mettre à jour les cases visuellement
+  document.querySelectorAll('.agency-row input[type=checkbox]').forEach(cb => {
+    const aid = cb.parentElement.getAttribute('data-agency');
+    cb.checked = selectedAgencies.has(aid);
+  });
+  if (lastStopMap) renderStops(lastStopMap);
+}
+
+// ════════════════════════════════════════════════════════
 function renderStops(stopMap) {
   lastStopMap = stopMap;
   markersLayer.clearLayers();
 
-  let green = 0, red = 0, orange = 0, noCoords = 0;
   const now = Date.now() / 1000;
+  const PAST_TOLERANCE = 60; // tolérance pour les passages "à l'instant"
 
-  for (const [stopId, { updates }] of stopMap) {
-    let info = gtfsData?.stops.get(stopId);
-    if (!info && gtfsData) {
-      // Fallback: scan right-to-left (local IDs are more specific than commune codes)
-      // e.g. FR:76481:ZE:4138:ATOUMOD003 → try 4138, then 76481
-      const parts = stopId.split(':');
-      for (let i = parts.length - 1; i >= 0; i--) {
-        if (/^\d{3,}$/.test(parts[i])) { info = gtfsData.stops.get(parts[i]); if (info) break; }
+  // ─── Cas 1 : pas d'offre théorique chargée ───────────────
+  // On ne peut pas afficher tous les arrêts théoriques, on tombe sur l'ancien
+  // comportement : affichage des arrêts présents dans le flux RT, en bleu.
+  if (!gtfsData || !gtfsData.stopList) {
+    let count = 0;
+    for (const [stopId, { updates }] of stopMap) {
+      const upcoming = updates.filter(u => u.time == null || u.time >= now - PAST_TOLERANCE);
+      if (upcoming.length === 0) continue;
+      // Pas de coordonnées dispo, on ne peut rien faire pour ce stop
+      count++;
+    }
+    document.getElementById('countGreen').textContent  = 0;
+    document.getElementById('countRed').textContent    = 0;
+    document.getElementById('countMixed').textContent  = 0;
+    document.getElementById('countTotal').textContent  = 0;
+    document.getElementById('countNoCoords').textContent =
+      `⚠ Offre théorique non chargée — chargez un GTFS ou NeTEx pour afficher les ${count} arrêts du flux.`;
+    document.getElementById('lastUpdate').textContent =
+      `Dernière mise à jour : ${new Date().toLocaleTimeString('fr-FR')}`;
+    return { green: 0, red: 0, orange: 0, total: 0, noCoords: 0, rtTotal: count };
+  }
+
+  // ─── Cas 2 : offre théorique chargée → affichage de TOUS les arrêts ───────
+  // On agrège d'abord les updates RT en les rattachant aux stops théoriques
+  // (par id complet, ou par alias unique sur l'avant-dernier segment).
+  const stopUpdates = new Map(); // info-objet (réf) → array d'updates fusionnés
+
+  function findStopInfo(rtStopId) {
+    let info = gtfsData.stops.get(rtStopId);
+    if (info) return info;
+    const parts = rtStopId.split(':');
+    if (parts.length >= 3) {
+      const local = parts[parts.length - 2];
+      if (/^\d{4,}$/.test(local)) info = gtfsData.stops.get(local);
+    }
+    return info || null;
+  }
+
+  let unmatchedRtStops = 0;
+  for (const [rtStopId, { updates }] of stopMap) {
+    const info = findStopInfo(rtStopId);
+    if (!info) { unmatchedRtStops++; continue; }
+    const list = stopUpdates.get(info) || [];
+    list.push(...updates);
+    stopUpdates.set(info, list);
+  }
+
+  // ─── Détecter les agences ayant remonté du RT (au moins 1 update matché) ────
+  agenciesWithRT = new Set();
+  if (gtfsData.tripToAgency) {
+    for (const updates of stopUpdates.values()) {
+      for (const u of updates) {
+        if (u.matched !== true) continue;
+        const aid = gtfsData.tripToAgency.get(u.tripId);
+        if (aid) agenciesWithRT.add(aid);
       }
     }
-    if (!info) { noCoords++; continue; }
+  }
+  // Met à jour le grisage des cases dans le filtre
+  updateAgencyRTState();
 
-    const color = stopColor(updates);
+  // ─── Itération sur TOUS les arrêts théoriques (filtrés par agence) ────────
+  let green = 0, red = 0, hidden = 0;
 
-    const m = updates.filter(u => u.matched).length;
-    const n = updates.filter(u => u.matched === false).length;
-    if (m > 0 && n > 0) orange++;
-    else if (m > 0) green++;
-    else red++;
+  for (const info of gtfsData.stopList) {
+    // Filtrage : on n'affiche le stop que s'il appartient à au moins une
+    // agence sélectionnée. S'il appartient à plusieurs, il suffit qu'une seule
+    // soit sélectionnée.
+    let passes = false;
+    for (const aid of info.agencies) {
+      if (selectedAgencies.has(aid)) { passes = true; break; }
+    }
+    if (!passes) { hidden++; continue; }
 
-    // Display label: earliest future departure time
-    const futureTimes = updates.map(u => u.time).filter(t => t && t > now).sort((a, b) => a - b);
-    const displayTime = fmtTime(futureTimes[0] ?? updates.find(u => u.time)?.time);
+    const allUpdates = stopUpdates.get(info) || [];
+    const upcoming   = allUpdates.filter(u => u.time == null || u.time >= now - PAST_TOLERANCE);
 
-    const marker = L.marker([info.lat, info.lon], { icon: makeIcon(color, displayTime, map.getZoom()) });
-    marker.bindPopup(buildPopup(info, stopId, updates), { maxWidth: 260 });
+    // Vert si au moins un trip RT match l'offre théorique pour cet arrêt,
+    // rouge sinon (pas de RT du tout, ou trips RT non-matchés).
+    const hasMatch = upcoming.some(u => u.matched === true);
+    const color    = hasMatch ? COLOR.green : COLOR.red;
+    if (hasMatch) green++; else red++;
+
+    // Label heure : prochaine heure de passage RT future (vert seulement)
+    let displayTime = '';
+    if (hasMatch) {
+      const futureTimes = upcoming
+        .filter(u => u.matched === true && u.time && u.time > now)
+        .map(u => u.time)
+        .sort((a, b) => a - b);
+      displayTime = fmtTime(futureTimes[0] ?? null);
+    }
+
+    const marker = L.marker([info.lat, info.lon], {
+      icon: makeIcon(color, displayTime, map.getZoom())
+    });
+    // Popup lazy : généré au moment de l'ouverture, pour ne pas pré-calculer
+    // 9 000+ popups d'un coup sur un grand réseau
+    marker.bindPopup(() => buildPopup(info, info.id, allUpdates), { maxWidth: 260 });
     markersLayer.addLayer(marker);
   }
 
-  const total = green + red + orange;
-  document.getElementById('countGreen').textContent = green;
-  document.getElementById('countRed').textContent   = red;
-  document.getElementById('countMixed').textContent = orange;
-  document.getElementById('countTotal').textContent = total;
-  const rtTotal = green + red + orange + noCoords;
+  const total = green + red;
+
+  document.getElementById('countGreen').textContent  = green;
+  document.getElementById('countRed').textContent    = red;
+  document.getElementById('countMixed').textContent  = 0;       // plus utilisé
+  document.getElementById('countTotal').textContent  = total;
 
   let coordsMsg = '';
-  if (!gtfsData) {
-    coordsMsg = `⚠ Offre théorique non chargée — chargez un GTFS ou NeTEx pour afficher les ${rtTotal} arrêts du flux.`;
-  } else if (noCoords > 0 && total === 0) {
-    const sampleRT  = [...stopMap.keys()].slice(0, 1)[0] || '';
-    const sampleTh  = [...gtfsData.stops.keys()].slice(0, 1)[0] || '';
-    coordsMsg = `⚠ ${noCoords} arrêts RT sans coordonnées — les stop_id ne correspondent pas (ex RT : "${sampleRT}" / ex théorique : "${sampleTh}").`;
-  } else if (noCoords > 0) {
-    coordsMsg = `${noCoords} arrêt(s) sans coordonnées dans l'offre théorique`;
+  if (unmatchedRtStops > 0) {
+    coordsMsg = `${unmatchedRtStops} stop(s) RT sans correspondance dans l'offre théorique`;
   }
-
   document.getElementById('countNoCoords').textContent = coordsMsg;
   document.getElementById('lastUpdate').textContent =
     `Dernière mise à jour : ${new Date().toLocaleTimeString('fr-FR')}`;
 
-  return { green, red, orange, total, noCoords, rtTotal };
+  return { green, red, orange: 0, total, noCoords: unmatchedRtStops, rtTotal: total };
 }
 
 // ════════════════════════════════════════════════════════
