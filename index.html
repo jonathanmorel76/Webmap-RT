@@ -606,14 +606,38 @@
 
       .sidebar-header-text { flex: 1; }
 
-      /* Search widget : ne chevauche pas le toggle */
+      /* Search widget : à droite du hamburger, légèrement plus bas pour respirer */
       #mapSearchWidget {
-        left: 62px;
+        top: 14px;
+        left: 64px;
         right: 12px;
         width: auto;
       }
 
       #mapSearchWidget .msw-bar input { font-size: 14px; }
+
+      /* Masquer le widget recherche quand la sidebar est ouverte */
+      body.sidebar-open #mapSearchWidget,
+      body.sidebar-open .leaflet-control-zoom {
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.2s ease;
+      }
+
+      /* Contrôles de zoom Leaflet : déplacés en bas à droite sur mobile */
+      .leaflet-top.leaflet-left {
+        top: auto !important;
+        bottom: 28px !important;
+        left: auto !important;
+        right: 10px !important;
+      }
+
+      .leaflet-control-zoom a {
+        width: 36px !important;
+        height: 36px !important;
+        line-height: 36px !important;
+        font-size: 20px !important;
+      }
 
       /* Touch targets plus grands */
       .btn {
@@ -1697,11 +1721,13 @@ function toggleSidebar() {
   const isOpen  = sidebar.classList.contains('open');
   sidebar.classList.toggle('open', !isOpen);
   overlay.classList.toggle('open', !isOpen);
+  document.body.classList.toggle('sidebar-open', !isOpen);
 }
 
 function closeSidebar() {
   document.getElementById('sidebar').classList.remove('open');
   document.getElementById('sidebarOverlay').classList.remove('open');
+  document.body.classList.remove('sidebar-open');
 }
 
 // ════════════════════════════════════════════════════════
