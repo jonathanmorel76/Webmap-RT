@@ -606,14 +606,24 @@
 
       .sidebar-header-text { flex: 1; }
 
-      /* Search widget : à droite du hamburger, légèrement plus bas pour respirer */
+      /* Bouton hamburger : décalé en respectant la safe-area iOS (notch) */
+      #sidebarToggle {
+        top: calc(env(safe-area-inset-top, 0px) + 10px);
+        left: calc(env(safe-area-inset-left, 0px) + 10px);
+        width: 38px;
+        height: 38px;
+        padding: 9px 8px;
+      }
+
+      /* Search widget : à droite du hamburger, safe-area incluse */
       #mapSearchWidget {
-        top: 14px;
-        left: 64px;
-        right: 12px;
+        top: calc(env(safe-area-inset-top, 0px) + 10px);
+        left: calc(env(safe-area-inset-left, 0px) + 58px);
+        right: calc(env(safe-area-inset-right, 0px) + 10px);
         width: auto;
       }
 
+      .msw-bar { height: 38px; padding: 0 8px; gap: 6px; }
       #mapSearchWidget .msw-bar input { font-size: 14px; }
 
       /* Masquer le widget recherche quand la sidebar est ouverte */
@@ -624,19 +634,25 @@
         transition: opacity 0.2s ease;
       }
 
-      /* Contrôles de zoom Leaflet : déplacés en bas à droite sur mobile */
+      /* Contrôles de zoom Leaflet : déplacés en bas à droite, au-dessus de l'attribution */
       .leaflet-top.leaflet-left {
         top: auto !important;
-        bottom: 28px !important;
+        bottom: calc(env(safe-area-inset-bottom, 0px) + 36px) !important;
         left: auto !important;
-        right: 10px !important;
+        right: calc(env(safe-area-inset-right, 0px) + 10px) !important;
       }
 
       .leaflet-control-zoom a {
-        width: 36px !important;
-        height: 36px !important;
-        line-height: 36px !important;
-        font-size: 20px !important;
+        width: 34px !important;
+        height: 34px !important;
+        line-height: 34px !important;
+        font-size: 18px !important;
+      }
+
+      /* Attribution Leaflet plus discrète sur mobile */
+      .leaflet-control-attribution {
+        font-size: 9px !important;
+        padding: 1px 5px !important;
       }
 
       /* Touch targets plus grands */
