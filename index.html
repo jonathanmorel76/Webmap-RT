@@ -59,6 +59,22 @@
       padding: 14px 16px 10px;
       border-bottom: 1px solid #e1e4e8;
       background: #f6f8fa;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .sidebar-logo {
+      width: 32px;
+      height: 32px;
+      flex-shrink: 0;
+      border-radius: 7px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+    }
+
+    .sidebar-header-text {
+      flex: 1;
+      min-width: 0;
     }
 
     .sidebar-header h1 {
@@ -66,12 +82,18 @@
       font-weight: 700;
       color: #0969da;
       letter-spacing: 0.2px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .sidebar-header .subtitle {
       font-size: 11px;
       color: #8c959f;
       margin-top: 2px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }
 
     .section {
@@ -604,14 +626,15 @@
       display: none;
       background: none;
       border: none;
-      font-size: 20px;
+      font-size: 22px;
       color: #57606a;
       cursor: pointer;
-      padding: 0 2px;
+      padding: 4px 8px;
       line-height: 1;
-      margin-left: auto;
       flex-shrink: 0;
+      border-radius: 6px;
     }
+    #sidebarClose:active { background: #e1e4e8; }
 
     /* Overlay */
     #sidebarOverlay {
@@ -672,12 +695,15 @@
 
       .sidebar-header {
         display: flex;
-        align-items: flex-start;
-        gap: 8px;
-        padding: 14px 14px 10px;
+        align-items: center;
+        gap: 10px;
+        padding: calc(env(safe-area-inset-top, 0px) + 14px) 14px 12px;
       }
 
-      .sidebar-header-text { flex: 1; }
+      .sidebar-logo { width: 30px; height: 30px; }
+      .sidebar-header h1 { font-size: 13px; }
+      .sidebar-header .subtitle { font-size: 10px; }
+      .sidebar-header-text { flex: 1; min-width: 0; }
 
       /* Bouton hamburger : décalé en respectant la safe-area iOS (notch) */
       #sidebarToggle {
@@ -782,9 +808,28 @@
 <div id="sidebar">
 
   <div class="sidebar-header">
+    <svg class="sidebar-logo" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <defs>
+        <radialGradient id="logoBg" cx="50%" cy="40%" r="65%">
+          <stop offset="0%" stop-color="#1f4f8b"/>
+          <stop offset="100%" stop-color="#0d2540"/>
+        </radialGradient>
+        <linearGradient id="logoWave" x1="0%" y1="0%" x2="0%" y2="100%">
+          <stop offset="0%" stop-color="#5cffc3"/>
+          <stop offset="100%" stop-color="#2da44e"/>
+        </linearGradient>
+      </defs>
+      <rect x="0" y="0" width="512" height="512" rx="112" ry="112" fill="url(#logoBg)"/>
+      <g fill="none" stroke="url(#logoWave)" stroke-linecap="round" transform="translate(256 380)">
+        <path d="M -210 -40 A 210 210 0 0 1 210 -40" stroke-width="32" opacity="0.45"/>
+        <path d="M -150 -55 A 150 150 0 0 1 150 -55" stroke-width="32" opacity="0.7"/>
+        <path d="M -85 -50 A 85 85 0 0 1 85 -50" stroke-width="32" opacity="1"/>
+      </g>
+      <circle cx="256" cy="380" r="32" fill="#5cffc3"/>
+    </svg>
     <div class="sidebar-header-text">
-      <h1>⬡ Contrôle Temps Réel</h1>
-      <div class="subtitle">Périmètre normand — GTFS-RT · SIRI · NeTEx</div>
+      <h1>Contrôle Temps Réel</h1>
+      <div class="subtitle">Périmètre normand · GTFS-RT · SIRI · NeTEx</div>
     </div>
     <button id="sidebarClose" onclick="closeSidebar()" title="Fermer">×</button>
   </div>
@@ -1506,13 +1551,23 @@ async function parseNeTExZip(zip) {
     }
   }
 
+  let fileIdx = 0;
   for (const file of xmlFiles) {
+    fileIdx++;
+    setStatus('gtfsStatus',
+      `⟳ NeTEx ${fileIdx}/${xmlFiles.length} : ${file.name.split('/').pop()}`,
+      'loading');
+    await yieldToBrowser();
     let content;
     try { content = stripBOM(await file.async('string')); } catch { continue; }
+    await yieldToBrowser();
     const doc = new DOMParser().parseFromString(content, 'application/xml');
+    content = null; // libère la string immédiatement
     if (doc.querySelector('parsererror')) continue;
+    await yieldToBrowser();
 
     // StopPlace → coords
+    let nLoop = 0;
     for (const sp of doc.querySelectorAll('StopPlace')) {
       const id  = sp.getAttribute('id');
       const lat = parseFloat(txt(sp, 'Location > Latitude', 'Latitude'));
@@ -1522,23 +1577,31 @@ async function parseNeTExZip(zip) {
         placeCoords.set(id, { lat, lon, name });
         indexStop(id, lat, lon, name);
       }
+      if (++nLoop % 1000 === 0) await yieldToBrowser();
     }
+    await yieldToBrowser();
 
     // ScheduledStopPoint → coords (some profiles embed them directly)
+    nLoop = 0;
     for (const ssp of doc.querySelectorAll('ScheduledStopPoint')) {
       const id  = ssp.getAttribute('id');
       const lat = parseFloat(txt(ssp, 'Location > Latitude', 'Latitude'));
       const lon = parseFloat(txt(ssp, 'Location > Longitude', 'Longitude'));
       const name = txt(ssp, 'Name');
       if (id && !isNaN(lat) && !isNaN(lon)) indexStop(id, lat, lon, name);
+      if (++nLoop % 1000 === 0) await yieldToBrowser();
     }
+    await yieldToBrowser();
 
     // PassengerStopAssignment → SSP ↔ StopPlace link
+    nLoop = 0;
     for (const psa of doc.querySelectorAll('PassengerStopAssignment')) {
       const sspRef   = psa.querySelector('ScheduledStopPointRef')?.getAttribute('ref');
       const placeRef = psa.querySelector('StopPlaceRef')?.getAttribute('ref');
       if (sspRef && placeRef) sspToPlace.set(sspRef, placeRef);
+      if (++nLoop % 2000 === 0) await yieldToBrowser();
     }
+    await yieldToBrowser();
 
     // ── Lignes (Line / FlexibleLine) ──
     // <Line id="..."><Name>Bus 1</Name><ShortName>1</ShortName>
@@ -1592,6 +1655,7 @@ async function parseNeTExZip(zip) {
     // Note : on n'ajoute QUE l'id complet aux `trips`, jamais les segments
     // intermédiaires (qui peuvent être ambigus entre réseaux). Les alias
     // éventuels seront ajoutés en post-pass uniquement s'ils sont uniques.
+    nLoop = 0;
     for (const sj of doc.querySelectorAll('ServiceJourney')) {
       const id = sj.getAttribute('id');
       if (!id) continue;
@@ -1605,9 +1669,12 @@ async function parseNeTExZip(zip) {
       if (directLine || jpRef || routeRef || directOperator) {
         sjRefs.set(id, { directLine, jpRef, routeRef, directOperator });
       }
+      if (++nLoop % 500 === 0) await yieldToBrowser();
     }
+    await yieldToBrowser();
 
     // DatedServiceJourney : référence un ServiceJourney parent
+    nLoop = 0;
     for (const dsj of doc.querySelectorAll('DatedServiceJourney')) {
       const id = dsj.getAttribute('id');
       if (!id) continue;
@@ -1619,6 +1686,7 @@ async function parseNeTExZip(zip) {
       } else if (sjRef && sjRefs.has(sjRef)) {
         sjRefs.set(id, sjRefs.get(sjRef));
       }
+      if (++nLoop % 500 === 0) await yieldToBrowser();
     }
   }
 
@@ -2529,6 +2597,46 @@ function stopRT() {
   document.getElementById('refreshCountdown').textContent = '';
   setStatus('rtStatus', 'Arrêté', 'idle');
 }
+
+// ════════════════════════════════════════════════════════
+//  AUTOSAVE des champs de saisie (résiste aux crashes/reloads PWA)
+// ════════════════════════════════════════════════════════
+const AUTOSAVE_KEY = 'gtfsrt-form-v1';
+const AUTOSAVE_FIELDS = ['gtfsUrl', 'rtUrl', 'corsProxy', 'refreshSel'];
+
+function saveForm() {
+  try {
+    const data = {};
+    for (const id of AUTOSAVE_FIELDS) {
+      const el = document.getElementById(id);
+      if (el) data[id] = el.value;
+    }
+    localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(data));
+  } catch {} // localStorage peut être désactivé / plein
+}
+
+function restoreForm() {
+  try {
+    const raw = localStorage.getItem(AUTOSAVE_KEY);
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    for (const id of AUTOSAVE_FIELDS) {
+      const el = document.getElementById(id);
+      if (el && data[id] !== undefined) el.value = data[id];
+    }
+  } catch {}
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+  restoreForm();
+  for (const id of AUTOSAVE_FIELDS) {
+    const el = document.getElementById(id);
+    if (el) {
+      el.addEventListener('input',  saveForm);
+      el.addEventListener('change', saveForm);
+    }
+  }
+});
 
 // ════════════════════════════════════════════════════════
 //  PWA · Enregistrement du Service Worker
