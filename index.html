@@ -1070,8 +1070,9 @@ async function loadGTFSFile(input) {
   setStatus('gtfsStatus', '⟳ Lecture du fichier ZIP…', 'loading');
   document.getElementById('gtfsBadge').innerHTML = '';
   try {
-    const zip = await JSZip.loadAsync(file);
+    let zip = await JSZip.loadAsync(file);
     gtfsData = await parseGTFSZip(zip);
+    zip = null; // libère la mémoire du ZIP
     setStatus('gtfsStatus',
       `✓ ${gtfsData.tripCount.toLocaleString('fr-FR')} trajets · ${gtfsData.stopCount.toLocaleString('fr-FR')} arrêts`,
       'success');
@@ -1093,9 +1094,11 @@ async function loadGTFSUrl() {
   try {
     const resp = await fetch(url);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const blob = await resp.blob();
-    const zip = await JSZip.loadAsync(blob);
+    let blob = await resp.blob();
+    let zip = await JSZip.loadAsync(blob);
+    blob = null; // le blob brut peut être libéré dès que JSZip a indexé
     gtfsData = await parseGTFSZip(zip);
+    zip = null;
     setStatus('gtfsStatus',
       `✓ ${gtfsData.tripCount.toLocaleString('fr-FR')} trajets · ${gtfsData.stopCount.toLocaleString('fr-FR')} arrêts`,
       'success');
@@ -1109,6 +1112,9 @@ async function loadGTFSUrl() {
   }
 }
 
+// Petit utilitaire pour rendre la main au navigateur (évite watchdog iOS)
+const yieldToBrowser = () => new Promise(r => setTimeout(r, 0));
+
 async function parseGTFSZip(zip) {
   const stops = new Map();
   const trips = new Set();
@@ -1119,10 +1125,15 @@ async function parseGTFSZip(zip) {
       || Object.values(zip.files).find(f => f.name.endsWith('/' + name) && !f.dir);
   }
 
+  // ── stops.txt ──
   const stopsFile = findFile('stops.txt');
   if (!stopsFile) throw new Error('stops.txt introuvable dans le ZIP');
+  setStatus('gtfsStatus', '⟳ Lecture des arrêts…', 'loading');
+  await yieldToBrowser();
   const stopsCSV = stripBOM(await stopsFile.async('string'));
+  await yieldToBrowser();
   const { data: stopsRows } = Papa.parse(stopsCSV, { header: true, skipEmptyLines: true });
+  let count = 0;
   for (const row of stopsRows) {
     const lat = parseFloat(row.stop_lat);
     const lon = parseFloat(row.stop_lon);
@@ -1132,24 +1143,34 @@ async function parseGTFSZip(zip) {
         name: (row.stop_name || row.stop_id).trim()
       });
     }
+    if (++count % 5000 === 0) await yieldToBrowser();
   }
 
   const tripToRoute = new Map(); // trip_id → route_id
   const routeNames  = new Map(); // route_id → display name
 
+  // ── trips.txt ──
   const tripsFile = findFile('trips.txt');
   if (!tripsFile) throw new Error('trips.txt introuvable dans le ZIP');
+  setStatus('gtfsStatus', '⟳ Lecture des trajets…', 'loading');
+  await yieldToBrowser();
   const tripsCSV = stripBOM(await tripsFile.async('string'));
+  await yieldToBrowser();
   const { data: tripsRows } = Papa.parse(tripsCSV, { header: true, skipEmptyLines: true });
+  count = 0;
   for (const row of tripsRows) {
     if (row.trip_id) {
       trips.add(row.trip_id.trim());
       if (row.route_id) tripToRoute.set(row.trip_id.trim(), row.route_id.trim());
     }
+    if (++count % 10000 === 0) await yieldToBrowser();
   }
 
+  // ── routes.txt (optionnel) ──
   const routesFile = findFile('routes.txt');
   if (routesFile) {
+    setStatus('gtfsStatus', '⟳ Lecture des lignes…', 'loading');
+    await yieldToBrowser();
     const routesCSV = stripBOM(await routesFile.async('string'));
     const { data: routesRows } = Papa.parse(routesCSV, { header: true, skipEmptyLines: true });
     for (const row of routesRows) {
@@ -1893,6 +1914,38 @@ if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
       .catch(err => console.warn('[SW] échec:', err));
   });
 }
+
+// ════════════════════════════════════════════════════════
+//  GLOBAL ERROR HANDLER — affichage visible des crashes
+// ════════════════════════════════════════════════════════
+function showGlobalError(msg) {
+  let box = document.getElementById('globalErrorBox');
+  if (!box) {
+    box = document.createElement('div');
+    box.id = 'globalErrorBox';
+    box.style.cssText = `
+      position:fixed; bottom:0; left:0; right:0; z-index:99999;
+      background:#cf222e; color:#fff; padding:12px 16px;
+      font:12px/1.4 -apple-system,Segoe UI,sans-serif;
+      max-height:40vh; overflow:auto; box-shadow:0 -2px 12px rgba(0,0,0,0.3);
+      white-space:pre-wrap; word-break:break-word;
+    `;
+    box.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+      <strong style="flex:1">⚠ Erreur</strong>
+      <button onclick="this.parentNode.parentNode.remove()" style="background:rgba(255,255,255,0.2);border:none;color:#fff;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:14px;line-height:1">×</button>
+    </div><div id="globalErrorMsg" style="margin-top:6px"></div>`;
+    document.body.appendChild(box);
+  }
+  document.getElementById('globalErrorMsg').textContent = msg;
+}
+
+window.addEventListener('error', e => {
+  showGlobalError(`${e.message}\n${e.filename}:${e.lineno}`);
+});
+window.addEventListener('unhandledrejection', e => {
+  const reason = e.reason;
+  showGlobalError('Promise rejetée: ' + (reason?.message || reason?.toString() || 'inconnue'));
+});
 
 </script>
 </body>

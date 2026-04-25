@@ -1,11 +1,12 @@
 // ─────────────────────────────────────────────────────────────
-//  GTFS-RT Control · Service Worker
+//  GTFS-RT Control · Service Worker v2
+//  Stratégie : SW minimaliste. Cache uniquement le shell de l'app.
+//  Tous les autres fetch passent en network direct (pas d'interception)
+//  pour éviter les bugs iOS sur les gros transferts (ZIP GTFS, flux RT).
 // ─────────────────────────────────────────────────────────────
-const CACHE_VERSION = 'gtfsrt-v1';
+const CACHE_VERSION = 'gtfsrt-v2';
 const SHELL_CACHE   = `${CACHE_VERSION}-shell`;
-const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 
-// Ressources de l'app (shell)
 const SHELL_ASSETS = [
   './',
   './index.html',
@@ -14,27 +15,14 @@ const SHELL_ASSETS = [
   './icons/icon-512.png'
 ];
 
-// Domaines CDN dont on accepte le cache (cache-first)
-const CDN_HOSTS = [
-  'unpkg.com',
-  'cdnjs.cloudflare.com',
-  'cdn.jsdelivr.net',
-  'tile.openstreetmap.org',
-  'a.tile.openstreetmap.org',
-  'b.tile.openstreetmap.org',
-  'c.tile.openstreetmap.org'
-];
-
-// ── Install : précache du shell ──────────────────────────────
 self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(SHELL_CACHE)
-      .then(cache => cache.addAll(SHELL_ASSETS))
+      .then(cache => cache.addAll(SHELL_ASSETS).catch(() => {}))
       .then(() => self.skipWaiting())
   );
 });
 
-// ── Activate : nettoyage des anciens caches ──────────────────
 self.addEventListener('activate', event => {
   event.waitUntil(
     caches.keys().then(keys =>
@@ -46,50 +34,22 @@ self.addEventListener('activate', event => {
   );
 });
 
-// ── Fetch : stratégie selon le type de ressource ─────────────
 self.addEventListener('fetch', event => {
   const req = event.request;
   if (req.method !== 'GET') return;
 
   const url = new URL(req.url);
 
-  // Same-origin (shell) : cache-first avec mise à jour en arrière-plan
+  // UNIQUEMENT le shell same-origin passe par le cache du SW
   if (url.origin === self.location.origin) {
-    event.respondWith(staleWhileRevalidate(req, SHELL_CACHE));
+    event.respondWith(
+      caches.match(req).then(cached => cached || fetch(req))
+    );
     return;
   }
 
-  // CDN connus : cache-first (libs JS, tuiles carto)
-  if (CDN_HOSTS.includes(url.hostname)) {
-    event.respondWith(cacheFirst(req, RUNTIME_CACHE));
-    return;
-  }
-
-  // Tout le reste (flux GTFS-RT, SIRI, NeTEx, GTFS) : network-only
-  // Données temps réel = JAMAIS de cache
+  // Tout le reste passe en réseau direct, sans interception SW.
+  // Les flux GTFS-RT, SIRI et les ZIP GTFS/NeTEx ne sont JAMAIS
+  // touchés par le SW : pas de res.clone() qui doublerait la
+  // mémoire sur iOS et pas de pollution du cache.
 });
-
-// ── Stratégies de cache ──────────────────────────────────────
-
-async function cacheFirst (req, cacheName) {
-  const cache  = await caches.open(cacheName);
-  const cached = await cache.match(req);
-  if (cached) return cached;
-  try {
-    const res = await fetch(req);
-    if (res.ok) cache.put(req, res.clone());
-    return res;
-  } catch {
-    return cached || Response.error();
-  }
-}
-
-async function staleWhileRevalidate (req, cacheName) {
-  const cache  = await caches.open(cacheName);
-  const cached = await cache.match(req);
-  const fetchPromise = fetch(req).then(res => {
-    if (res.ok) cache.put(req, res.clone());
-    return res;
-  }).catch(() => cached);
-  return cached || fetchPromise;
-}
