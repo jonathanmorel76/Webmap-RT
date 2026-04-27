@@ -542,6 +542,64 @@
     /* countNoCoords inline color override */
     #countNoCoords { font-size: 10px; color: #8c959f; text-align: center; margin-top: 5px; }
 
+    /* ── Onglets RT ── */
+    .rt-tabs {
+      display: flex;
+      gap: 4px;
+      border-bottom: 1px solid #e1e4e8;
+      margin-bottom: 12px;
+      overflow-x: auto;
+      padding-bottom: 0;
+    }
+    .rt-tab {
+      padding: 7px 12px;
+      font-size: 12px;
+      font-weight: 500;
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: #57606a;
+      cursor: pointer;
+      white-space: nowrap;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+    .rt-tab.active {
+      color: #0969da;
+      border-bottom-color: #0969da;
+    }
+    .rt-tab .tab-close {
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: transparent;
+      color: #8c959f;
+      border: none;
+      cursor: pointer;
+      font-size: 14px;
+      line-height: 1;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .rt-tab .tab-close:hover { background: #f0f2f4; color: #cf222e; }
+    .rt-tab .tab-status-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #afb8c1;
+      flex-shrink: 0;
+    }
+    .rt-tab.success .tab-status-dot { background: #2da44e; }
+    .rt-tab.error   .tab-status-dot { background: #cf222e; }
+    .rt-tab.loading .tab-status-dot { background: #d4a72c; animation: rtpulse 1s ease-in-out infinite; }
+
+    .rt-tab-panel { display: none; }
+    .rt-tab-panel.active { display: block; }
+
     /* ── Filtre agences (réseaux) ── */
     .agency-row {
       display: flex;
@@ -868,24 +926,19 @@
     <div id="gtfsBadge"></div>
   </div>
 
-  <!-- Flux RT -->
+  <!-- Flux RT (onglets multi-flux) -->
   <div class="section">
-    <div class="section-title">Flux Temps Réel</div>
-
-    <div class="format-toggle">
-      <button class="fmt-btn active" id="fmtRtGtfsrt" onclick="setRtFormat('gtfsrt')">GTFS-RT</button>
-      <button class="fmt-btn"        id="fmtRtSiri"   onclick="setRtFormat('siri')">SIRI</button>
+    <div class="section-title">
+      Flux Temps Réel
+      <span style="float:right">
+        <button class="fmt-btn" id="rtAddTabBtn" onclick="addRtTab()" title="Ajouter un flux" style="padding:2px 9px;font-size:14px;line-height:1">+</button>
+      </span>
     </div>
 
-    <label for="rtUrl">URL du flux</label>
-    <input type="text" id="rtUrl" placeholder="https://…/trip_updates.pb">
-    <div id="rtFormatHint" class="hint">Format protobuf (.pb) — détection automatique JSON/binaire.</div>
+    <div id="rtTabs" class="rt-tabs"></div>
+    <div id="rtTabPanels"></div>
 
-    <label for="corsProxy">Proxy CORS <span style="color:#484f58">(si blocage navigateur)</span></label>
-    <input type="text" id="corsProxy" placeholder="https://corsproxy.io/?">
-    <div class="hint">Nécessaire uniquement si le flux ne retourne pas de header <code>Access-Control-Allow-Origin</code>.</div>
-
-    <label for="refreshSel">Actualisation automatique</label>
+    <label for="refreshSel" style="margin-top:14px">Actualisation automatique</label>
     <select id="refreshSel">
       <option value="0">Manuelle uniquement</option>
       <option value="15">Toutes les 15 s</option>
@@ -1117,6 +1170,158 @@ let isRunning = false;
 let theoFormat = 'gtfs';   // 'gtfs' | 'netex'
 let rtFormat   = 'gtfsrt'; // 'gtfsrt' | 'siri'
 
+// ════════════════════════════════════════════════════════
+//  ONGLETS DE FLUX RT (multi-flux)
+// ════════════════════════════════════════════════════════
+// Chaque flux a sa propre URL, son format, son proxy, son label.
+// La structure : rtFeeds = [{id, label, format, url, proxy, status}]
+
+let rtFeeds = [];     // tableau de configs
+let rtNextId = 1;     // id incrémentiel
+let rtActiveTab = null;
+
+function newRtFeedConfig(label) {
+  const id = rtNextId++;
+  return {
+    id,
+    label: label || `Flux ${id}`,
+    format: 'gtfsrt',
+    url: '',
+    proxy: '',
+    status: 'idle' // idle | loading | success | error
+  };
+}
+
+function addRtTab() {
+  const feed = newRtFeedConfig();
+  rtFeeds.push(feed);
+  renderRtTabs();
+  selectRtTab(feed.id);
+  saveRtFeeds();
+}
+
+function removeRtTab(feedId) {
+  if (rtFeeds.length <= 1) {
+    alert('Il faut au moins un flux RT.');
+    return;
+  }
+  rtFeeds = rtFeeds.filter(f => f.id !== feedId);
+  if (rtActiveTab === feedId) rtActiveTab = rtFeeds[0]?.id ?? null;
+  renderRtTabs();
+  saveRtFeeds();
+}
+
+function selectRtTab(feedId) {
+  rtActiveTab = feedId;
+  renderRtTabs();
+}
+
+function renderRtTabs() {
+  const tabsBox  = document.getElementById('rtTabs');
+  const panelBox = document.getElementById('rtTabPanels');
+  if (!tabsBox || !panelBox) return;
+
+  // Onglets
+  tabsBox.innerHTML = rtFeeds.map(f => `
+    <button class="rt-tab ${rtActiveTab === f.id ? 'active' : ''} ${f.status}"
+            onclick="selectRtTab(${f.id})">
+      <span class="tab-status-dot"></span>
+      <span>${(f.label || `Flux ${f.id}`).replace(/[<>&]/g, '')}</span>
+      ${rtFeeds.length > 1
+        ? `<span class="tab-close" onclick="event.stopPropagation();removeRtTab(${f.id})" title="Fermer">×</span>`
+        : ''}
+    </button>
+  `).join('');
+
+  // Panneaux
+  panelBox.innerHTML = rtFeeds.map(f => {
+    const active = rtActiveTab === f.id ? 'active' : '';
+    const isSiri = f.format === 'siri';
+    return `
+    <div class="rt-tab-panel ${active}" data-feed="${f.id}">
+      <label>Nom du flux</label>
+      <input type="text" placeholder="ex: Atoumod" value="${(f.label || '').replace(/"/g, '&quot;')}"
+             oninput="updateRtFeed(${f.id}, 'label', this.value); document.querySelector('.rt-tab.active span:nth-child(2)').textContent = this.value || 'Flux ${f.id}'">
+
+      <div class="format-toggle" style="margin-top:10px">
+        <button class="fmt-btn ${!isSiri ? 'active' : ''}" onclick="updateRtFeed(${f.id}, 'format', 'gtfsrt'); renderRtTabs()">GTFS-RT</button>
+        <button class="fmt-btn ${isSiri  ? 'active' : ''}" onclick="updateRtFeed(${f.id}, 'format', 'siri');   renderRtTabs()">SIRI</button>
+      </div>
+
+      <label for="rtUrl_${f.id}">URL du flux</label>
+      <input type="text" id="rtUrl_${f.id}" value="${(f.url || '').replace(/"/g, '&quot;')}"
+             placeholder="${isSiri ? 'https://…/siri.xml' : 'https://…/trip_updates.pb'}"
+             oninput="updateRtFeed(${f.id}, 'url', this.value)">
+
+      <label for="rtProxy_${f.id}">Proxy CORS <span style="color:#484f58">(optionnel)</span></label>
+      <input type="text" id="rtProxy_${f.id}" value="${(f.proxy || '').replace(/"/g, '&quot;')}"
+             placeholder="https://corsproxy.io/?"
+             oninput="updateRtFeed(${f.id}, 'proxy', this.value)">
+
+      <div class="hint" style="margin-top:6px">
+        ${isSiri
+          ? 'Format XML SIRI — ET (EstimatedTimetable) et SM (StopMonitoring) supportés.'
+          : 'Format protobuf (.pb) — détection automatique JSON/binaire.'}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function updateRtFeed(feedId, key, value) {
+  const f = rtFeeds.find(x => x.id === feedId);
+  if (!f) return;
+  f[key] = value;
+  saveRtFeeds();
+}
+
+function setRtFeedStatus(feedId, status) {
+  const f = rtFeeds.find(x => x.id === feedId);
+  if (!f) return;
+  f.status = status;
+  // Mettre à jour visuellement la pastille de l'onglet sans tout reconstruire
+  const tab = document.querySelector(`.rt-tab.active`);
+  if (tab && rtActiveTab === feedId) {
+    tab.classList.remove('idle', 'loading', 'success', 'error');
+    tab.classList.add(status);
+  }
+  // Plus simple : re-render
+  renderRtTabs();
+}
+
+// Persistance des flux configurés en localStorage
+const RT_FEEDS_KEY = 'gtfsrt-feeds-v1';
+function saveRtFeeds() {
+  try {
+    const data = rtFeeds.map(f => ({
+      id: f.id, label: f.label, format: f.format, url: f.url, proxy: f.proxy
+    }));
+    localStorage.setItem(RT_FEEDS_KEY, JSON.stringify(data));
+  } catch {}
+}
+function restoreRtFeeds() {
+  try {
+    const raw = localStorage.getItem(RT_FEEDS_KEY);
+    if (raw) {
+      const data = JSON.parse(raw);
+      if (Array.isArray(data) && data.length > 0) {
+        rtFeeds = data.map(d => ({ ...d, status: 'idle' }));
+        rtNextId = Math.max(...rtFeeds.map(f => f.id)) + 1;
+        rtActiveTab = rtFeeds[0].id;
+        return;
+      }
+    }
+  } catch {}
+  // Fallback : un seul flux vide
+  rtFeeds = [newRtFeedConfig('Flux 1')];
+  rtActiveTab = rtFeeds[0].id;
+}
+
+// Initialisation au chargement
+window.addEventListener('DOMContentLoaded', () => {
+  restoreRtFeeds();
+  renderRtTabs();
+});
+
 function setTheoFormat(fmt) {
   theoFormat = fmt;
   document.getElementById('fmtTheoGtfs').classList.toggle('active', fmt === 'gtfs');
@@ -1126,18 +1331,6 @@ function setTheoFormat(fmt) {
   setStatus('gtfsStatus', 'Aucune offre théorique chargée', 'idle');
   document.getElementById('gtfsBadge').innerHTML = '';
   gtfsData = null;
-}
-
-function setRtFormat(fmt) {
-  rtFormat = fmt;
-  document.getElementById('fmtRtGtfsrt').classList.toggle('active', fmt === 'gtfsrt');
-  document.getElementById('fmtRtSiri').classList.toggle('active', fmt === 'siri');
-  document.getElementById('rtFormatHint').textContent = fmt === 'siri'
-    ? 'Format XML SIRI — ET (EstimatedTimetable) et SM (StopMonitoring) supportés.'
-    : 'Format protobuf (.pb) — détection automatique JSON/binaire.';
-  document.getElementById('rtUrl').placeholder = fmt === 'siri'
-    ? 'https://…/siri.xml'
-    : 'https://…/trip_updates.pb';
 }
 
 // ════════════════════════════════════════════════════════
@@ -1311,6 +1504,9 @@ async function parseGTFSZip(zip) {
   }
 
   // ── agency.txt ──
+  // On n'inclut que les agences avec agency_name non vide. Les entrées sans
+  // nom (ou avec nom = id technique) sont écartées : leurs stops/trips
+  // resteront sans agence et seront donc masqués de l'affichage.
   const agencies     = new Map(); // agency_id → { id, name }
   const agencyFile = findFile('agency.txt');
   if (agencyFile) {
@@ -1319,15 +1515,15 @@ async function parseGTFSZip(zip) {
     const agencyCSV = stripBOM(await agencyFile.async('string'));
     const { data: agencyRows } = Papa.parse(agencyCSV, { header: true, skipEmptyLines: true });
     for (const row of agencyRows) {
-      // agency_id est optionnel si une seule agence ; on lui donne un id par défaut
       const aid  = (row.agency_id || '').trim() || '_default_';
-      const name = (row.agency_name || aid).trim();
+      const name = (row.agency_name || '').trim();
+      if (!name) continue; // agency_name vide → on ignore
       agencies.set(aid, { id: aid, name });
     }
   }
-  // Si agency.txt absent ou vide, on crée une agence factice
+  // Si aucune agence valide, on crée une agence factice plutôt que rien
   if (agencies.size === 0) {
-    agencies.set('_default_', { id: '_default_', name: 'Agence' });
+    agencies.set('_default_', { id: '_default_', name: 'Réseau' });
   }
 
   // ── routes.txt (optionnel) ──
@@ -1394,17 +1590,28 @@ async function parseGTFSZip(zip) {
   if (!stops.size) throw new Error('Aucun arrêt valide trouvé dans stops.txt');
   if (!trips.size) throw new Error('Aucun trajet trouvé dans trips.txt');
 
-  // Annoter chaque stop avec ses agences (pour filtrage rapide au render)
+  // Annoter chaque stop avec ses agences. Si un stop est associé à des
+  // agences toutes invalides (sans agency_name), il aura un Set vide et
+  // sera masqué.
   for (const stop of stops.values()) {
-    stop.agencies = stopToAgencies.get(stop.id) || new Set(['_default_']);
+    const linked = stopToAgencies.get(stop.id);
+    if (!linked) {
+      // Stop non lié via stop_times : on garde _default_ uniquement si dispo
+      stop.agencies = agencies.has('_default_') ? new Set(['_default_']) : new Set();
+    } else {
+      // Filtrer pour ne garder que les agences valides
+      const valid = new Set();
+      for (const aid of linked) if (agencies.has(aid)) valid.add(aid);
+      stop.agencies = valid;
+    }
   }
 
-  // Liste unique des stops (en GTFS chaque stop_id est unique, pas d'alias)
-  const stopList = Array.from(stops.values());
+  // stopList ne contient que les stops avec au moins une agence valide
+  const stopList = Array.from(stops.values()).filter(s => s.agencies.size > 0);
 
   return {
     stops, trips, stopList,
-    stopCount: stops.size, tripCount: trips.size,
+    stopCount: stopList.length, tripCount: trips.size,
     tripToRoute, routeNames, routeTypes, tripShortNames,
     agencies, tripToAgency
   };
@@ -1625,13 +1832,17 @@ async function parseNeTExZip(zip) {
     });
 
     // 4) Operator
+    // Idem GTFS : on n'inclut que les opérateurs avec un Name non vide.
+    // Les Operators sans nom sont écartés (leurs trips et stops associés
+    // seront sans agence donc masqués).
     await forEachMatch(RE_OPERATOR, xml, 200, m => {
       const id   = m[1];
       const body = m[2];
-      const name = getTag(body, 'Name')
-                || getTag(body, 'CompanyNumber')
-                || getTag(body, 'PrivateCode')
-                || id;
+      const name = (getTag(body, 'Name')
+                 || getTag(body, 'CompanyNumber')
+                 || getTag(body, 'PrivateCode')
+                 || '').trim();
+      if (!name) return; // Operator sans nom → ignoré
       agencies.set(id, { id, name });
     });
 
@@ -1777,11 +1988,8 @@ async function parseNeTExZip(zip) {
     if (agencyId) tripToAgency.set(alias, agencyId);
   }
 
-  if (agencies.size === 0) {
-    agencies.set('_default_', { id: '_default_', name: 'Réseau' });
-  }
-
   // ── Annotation des stops avec leurs agences (par préfixe d'id) ──
+  // Si aucune agence valide ne matche, le stop a un Set vide → il sera masqué.
   const agencyKeys = Array.from(agencies.keys());
   for (const stop of stops.values()) {
     if (stop.agencies) continue;
@@ -1792,17 +2000,19 @@ async function parseNeTExZip(zip) {
         if (stop.id.includes(part)) { matched.add(aid); break; }
       }
     }
-    stop.agencies = matched.size > 0 ? matched : new Set(['_default_']);
-  }
-  if (![...stops.values()].every(s => s.agencies.size > 0) && !agencies.has('_default_')) {
-    agencies.set('_default_', { id: '_default_', name: 'Autre' });
+    stop.agencies = matched; // peut être vide → stop masqué
   }
 
   if (!trips.size) throw new Error('Aucun ServiceJourney trouvé dans les XML NeTEx');
+  if (!agencies.size) throw new Error('Aucun Operator avec Name trouvé — impossible d\'identifier les réseaux');
+
+  // stopList ne contient que les stops avec au moins une agence valide
+  const filteredStopList = stopList.filter(s => s.agencies.size > 0);
 
   return {
-    stops, trips, stopList,
-    stopCount: stopList.length,
+    stops, trips,
+    stopList: filteredStopList,
+    stopCount: filteredStopList.length,
     tripCount: trips.size,
     tripToLine,
     lines,
@@ -1815,9 +2025,13 @@ async function parseNeTExZip(zip) {
 //  RT FETCH + PARSE (GTFS-RT & SIRI)
 // ════════════════════════════════════════════════════════
 
-async function fetchRT() {
-  const url   = document.getElementById('rtUrl').value.trim();
-  const proxy = document.getElementById('corsProxy').value.trim();
+async function fetchRT(feedConfig) {
+  // feedConfig peut être passé explicitement ; sinon on prend le premier flux
+  const feed = feedConfig || rtFeeds[0];
+  if (!feed) throw new Error('Aucun flux RT configuré');
+  const url   = (feed.url || '').trim();
+  const proxy = (feed.proxy || '').trim();
+  const format = feed.format || 'gtfsrt';
   if (!url) throw new Error('URL du flux manquante');
 
   const fetchUrl = proxy ? proxy + url : url;
@@ -1854,7 +2068,7 @@ async function fetchRT() {
   const first = head.trimStart()[0];
 
   // ── SIRI / XML ────────────────────────────────────
-  if (rtFormat === 'siri' || ct.includes('xml') || head.trimStart().startsWith('<?xml') || head.trimStart().startsWith('<Siri')) {
+  if (format === 'siri' || ct.includes('xml') || head.trimStart().startsWith('<?xml') || head.trimStart().startsWith('<Siri')) {
     const text = dec.decode(buf);
     const doc  = new DOMParser().parseFromString(text, 'application/xml');
     if (doc.querySelector('parsererror')) throw new Error('XML SIRI invalide');
@@ -2516,35 +2730,78 @@ function renderStops(stopMap) {
 // ════════════════════════════════════════════════════════
 
 async function refreshRT() {
-  setStatus('rtStatus', '<span class="spinner"></span> Chargement du flux…', 'loading');
-  document.getElementById('rtStatus').innerHTML =
-    `<span class="spinner"></span> Chargement du flux…`;
-  document.getElementById('rtStatus').className = 'status-bar status-loading';
+  // Filtrer les flux qui ont une URL renseignée
+  const activeFeeds = rtFeeds.filter(f => (f.url || '').trim());
+  if (activeFeeds.length === 0) {
+    setStatus('rtStatus', '✗ Aucun flux RT configuré', 'error');
+    return;
+  }
+
+  setStatus('rtStatus',
+    `<span class="spinner"></span> Chargement de ${activeFeeds.length} flux…`,
+    'loading');
+
+  // Lancer tous les fetchs en parallèle, chaque flux indépendamment
+  const results = await Promise.all(activeFeeds.map(async feed => {
+    setRtFeedStatus(feed.id, 'loading');
+    try {
+      const stopMap = await fetchRT(feed);
+      setRtFeedStatus(feed.id, 'success');
+      return { feed, stopMap, error: null };
+    } catch (e) {
+      setRtFeedStatus(feed.id, 'error');
+      console.error(`[RT ${feed.label}]`, e);
+      return { feed, stopMap: null, error: e.message };
+    }
+  }));
+
+  // Merger les stopMaps en un seul (un stop_id peut apparaître dans plusieurs flux)
+  const merged = new Map();
+  let okCount = 0;
+  for (const r of results) {
+    if (!r.stopMap) continue;
+    okCount++;
+    for (const [stopId, data] of r.stopMap) {
+      const existing = merged.get(stopId);
+      if (existing) {
+        existing.updates.push(...data.updates);
+      } else {
+        merged.set(stopId, { stopId, updates: [...data.updates] });
+      }
+    }
+  }
+
+  // Affichage
   try {
-    const stopMap = await fetchRT();
-    const s = renderStops(stopMap);
+    const s = renderStops(merged);
+    const errors = results.filter(r => r.error).length;
     if (s.total > 0) {
-      setStatus('rtStatus',
-        `✓ ${s.total} arrêts · ${s.green} verts · ${s.red} rouges${s.orange > 0 ? ` · ${s.orange} orange` : ''}`,
-        'success');
+      let msg = `✓ ${s.total} arrêts · ${s.green} avec RT · ${s.red} sans RT`;
+      if (okCount < activeFeeds.length) msg += ` · ${errors}/${activeFeeds.length} flux en erreur`;
+      setStatus('rtStatus', msg, errors > 0 ? 'warning' : 'success');
+    } else if (okCount === 0) {
+      setStatus('rtStatus', `✗ Tous les flux ont échoué`, 'error');
     } else {
       setStatus('rtStatus',
-        `Flux chargé — ${s.rtTotal} arrêts RT reçus, 0 affiché (voir message ci-dessous)`,
+        `Flux chargé — ${s.rtTotal} arrêts RT reçus, 0 affiché`,
         s.rtTotal > 0 ? 'warning' : 'idle');
     }
   } catch (e) {
     setStatus('rtStatus', `✗ ${e.message}`, 'error');
-    console.error('[GTFS-RT]', e);
+    console.error('[render]', e);
   }
 }
 
 function startRT() {
-  const url = document.getElementById('rtUrl').value.trim();
-  if (!url) { alert('Veuillez renseigner une URL GTFS-RT.'); return; }
+  const activeFeeds = rtFeeds.filter(f => (f.url || '').trim());
+  if (activeFeeds.length === 0) {
+    alert('Veuillez renseigner au moins une URL de flux RT.');
+    return;
+  }
 
   if (!gtfsData) {
     const ok = confirm(
-      'Aucune offre théorique GTFS chargée.\n\n' +
+      'Aucune offre théorique chargée.\n\n' +
       'Les arrêts seront affichés en bleu (statut indéterminé).\n\n' +
       'Continuer sans offre théorique ?'
     );
@@ -2589,7 +2846,7 @@ function stopRT() {
 //  AUTOSAVE des champs de saisie (résiste aux crashes/reloads PWA)
 // ════════════════════════════════════════════════════════
 const AUTOSAVE_KEY = 'gtfsrt-form-v1';
-const AUTOSAVE_FIELDS = ['gtfsUrl', 'rtUrl', 'corsProxy', 'refreshSel'];
+const AUTOSAVE_FIELDS = ['gtfsUrl', 'refreshSel'];
 
 function saveForm() {
   try {
