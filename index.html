@@ -1618,31 +1618,85 @@ async function parseGTFSZip(zip) {
 }
 
 // ════════════════════════════════════════════════════════
-//  NETEX PARSING
+//  NETEX PARSING — chargeurs avec annulation et garde-fou taille
 // ════════════════════════════════════════════════════════
+
+// Drapeau d'annulation : checké régulièrement par parseNeTExZip
+let loadingCancelled = false;
+let isLoadingTheo    = false;
+
+function cancelLoading() {
+  loadingCancelled = true;
+  setStatus('gtfsStatus', '⏹ Annulation en cours…', 'loading');
+}
+
+function showCancelButton(show) {
+  let btn = document.getElementById('cancelLoadBtn');
+  if (show) {
+    if (!btn) {
+      btn = document.createElement('button');
+      btn.id = 'cancelLoadBtn';
+      btn.className = 'btn btn-danger';
+      btn.style.marginTop = '8px';
+      btn.textContent = '⏹ Annuler le chargement';
+      btn.onclick = cancelLoading;
+      const status = document.getElementById('gtfsStatus');
+      status.parentNode.insertBefore(btn, status.nextSibling);
+    }
+    btn.style.display = 'block';
+  } else if (btn) {
+    btn.style.display = 'none';
+  }
+}
 
 async function loadNeTExFile(input) {
   const file = input.files[0];
   if (!file) return;
-  setStatus('gtfsStatus', '⟳ Lecture du fichier ZIP NeTEx…', 'loading');
+
+  const sizeMb = file.size / 1024 / 1024;
+  if (sizeMb > 100) {
+    const ok = confirm(
+      `Ce fichier fait ${sizeMb.toFixed(0)} Mo.\n\n` +
+      `Les fichiers de cette taille peuvent saturer la mémoire et faire ` +
+      `planter le navigateur, surtout sur mobile.\n\n` +
+      `Conseils :\n` +
+      `• Préférer des NeTEx par réseau plutôt que le NeTEx national entier\n` +
+      `• Fermer les autres onglets du navigateur\n\n` +
+      `Continuer quand même ?`
+    );
+    if (!ok) { input.value = ''; return; }
+  }
+
+  setStatus('gtfsStatus', `⟳ Lecture du ZIP (${sizeMb.toFixed(1)} Mo)…`, 'loading');
   document.getElementById('gtfsBadge').innerHTML = '';
+  loadingCancelled = false;
+  isLoadingTheo    = true;
+  showCancelButton(true);
   try {
     const zip = await JSZip.loadAsync(file);
     gtfsData = await parseNeTExZip(zip);
     selectedAgencies = new Set();
     rebuildAgencyFilter();
     setStatus('gtfsStatus',
-      `✓ ${gtfsData.tripCount.toLocaleString('fr-FR')} trajets · ${gtfsData.stopCount.toLocaleString('fr-FR')} arrêts`,
+      `✓ ${gtfsData.tripCount.toLocaleString('fr-FR')} trajets · ${gtfsData.stopCount.toLocaleString('fr-FR')} arrêts · ${gtfsData.agencies.size} réseaux`,
       'success');
     document.getElementById('gtfsBadge').innerHTML =
       `<span class="badge badge-green">✓ NeTEx — ${file.name}</span>`;
   } catch (e) {
-    setStatus('gtfsStatus', `✗ ${e.message}`, 'error');
-    document.getElementById('gtfsBadge').innerHTML =
-      `<span class="badge badge-red">✗ Échec NeTEx</span>`;
+    if (e.message === 'CANCELLED') {
+      setStatus('gtfsStatus', '⏹ Chargement annulé', 'idle');
+    } else {
+      setStatus('gtfsStatus', `✗ ${e.message}`, 'error');
+      document.getElementById('gtfsBadge').innerHTML =
+        `<span class="badge badge-red">✗ Échec NeTEx</span>`;
+    }
     gtfsData = null;
     selectedAgencies = new Set();
     rebuildAgencyFilter();
+  } finally {
+    isLoadingTheo = false;
+    loadingCancelled = false;
+    showCancelButton(false);
   }
 }
 
@@ -1651,6 +1705,9 @@ async function loadNeTExUrl() {
   if (!url) { alert('Veuillez saisir une URL NeTEx.'); return; }
   setStatus('gtfsStatus', '⟳ Téléchargement NeTEx…', 'loading');
   document.getElementById('gtfsBadge').innerHTML = '';
+  loadingCancelled = false;
+  isLoadingTheo    = true;
+  showCancelButton(true);
   try {
     const resp = await fetch(url);
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
@@ -1659,17 +1716,25 @@ async function loadNeTExUrl() {
     selectedAgencies = new Set();
     rebuildAgencyFilter();
     setStatus('gtfsStatus',
-      `✓ ${gtfsData.tripCount.toLocaleString('fr-FR')} trajets · ${gtfsData.stopCount.toLocaleString('fr-FR')} arrêts`,
+      `✓ ${gtfsData.tripCount.toLocaleString('fr-FR')} trajets · ${gtfsData.stopCount.toLocaleString('fr-FR')} arrêts · ${gtfsData.agencies.size} réseaux`,
       'success');
     document.getElementById('gtfsBadge').innerHTML =
       `<span class="badge badge-green">✓ NeTEx chargé</span>`;
   } catch (e) {
-    setStatus('gtfsStatus', `✗ ${e.message}`, 'error');
-    document.getElementById('gtfsBadge').innerHTML =
-      `<span class="badge badge-red">✗ Échec</span>`;
+    if (e.message === 'CANCELLED') {
+      setStatus('gtfsStatus', '⏹ Chargement annulé', 'idle');
+    } else {
+      setStatus('gtfsStatus', `✗ ${e.message}`, 'error');
+      document.getElementById('gtfsBadge').innerHTML =
+        `<span class="badge badge-red">✗ Échec</span>`;
+    }
     gtfsData = null;
     selectedAgencies = new Set();
     rebuildAgencyFilter();
+  } finally {
+    isLoadingTheo = false;
+    loadingCancelled = false;
+    showCancelButton(false);
   }
 }
 
@@ -1777,20 +1842,25 @@ async function parseNeTExZip(zip) {
     return { lat, lon };
   }
 
-  // Itère sur une regex globale en yieldant tous les N matches (évite watchdog iOS)
+  // Itère sur une regex globale en yieldant tous les N matches (évite watchdog iOS).
+  // Vérifie l'annulation utilisateur à chaque yield et lève si demandé.
   async function forEachMatch(re, str, every, fn) {
     re.lastIndex = 0;
     let count = 0;
     let m;
     while ((m = re.exec(str)) !== null) {
       fn(m);
-      if (++count % every === 0) await yieldToBrowser();
+      if (++count % every === 0) {
+        await yieldToBrowser();
+        if (loadingCancelled) throw new Error('CANCELLED');
+      }
     }
   }
 
   // ── Boucle principale sur les fichiers XML ──
   let fileIdx = 0;
   for (const file of xmlFiles) {
+    if (loadingCancelled) throw new Error('CANCELLED');
     fileIdx++;
     setStatus('gtfsStatus',
       `⟳ NeTEx ${fileIdx}/${xmlFiles.length} : ${file.name.split('/').pop()}`,
@@ -1912,6 +1982,8 @@ async function parseNeTExZip(zip) {
     xml = null;
   }
 
+  if (loadingCancelled) throw new Error('CANCELLED');
+
   // ── Resolve SSP → StopPlace ──
   for (const [sspId, placeId] of sspToPlace) {
     if (!stops.has(sspId)) {
@@ -1919,6 +1991,9 @@ async function parseNeTExZip(zip) {
       if (c) indexStop(sspId, c.lat, c.lon, c.name);
     }
   }
+  // Plus besoin des structures intermédiaires de coords
+  placeCoords.clear();
+  sspToPlace.clear();
 
   // ── Résolution Line / Operator ──
   function resolveLine(refs) {
@@ -1988,19 +2063,39 @@ async function parseNeTExZip(zip) {
     if (agencyId) tripToAgency.set(alias, agencyId);
   }
 
+  // Plus besoin des structures intermédiaires de routing
+  sjRefs.clear();
+  routeToLine.clear();
+  jpToLine.clear();
+  jpToRoute.clear();
+  await yieldToBrowser();
+  if (loadingCancelled) throw new Error('CANCELLED');
+
   // ── Annotation des stops avec leurs agences (par préfixe d'id) ──
   // Si aucune agence valide ne matche, le stop a un Set vide → il sera masqué.
+  // On ne parcourt QUE stopList (uniques) et non stops.values (qui contient
+  // aussi tous les alias et démultiplie le travail).
   const agencyKeys = Array.from(agencies.keys());
-  for (const stop of stops.values()) {
+  // Pré-extraire les segments distinctifs des agency ids une fois
+  const agencyKeyParts = agencyKeys.map(aid => ({
+    aid,
+    parts: aid.split(':').filter(p => p.length >= 3)
+  }));
+
+  let nAnno = 0;
+  for (const stop of stopList) {
     if (stop.agencies) continue;
     const matched = new Set();
-    for (const aid of agencyKeys) {
-      const aidParts = aid.split(':').filter(p => p.length >= 3);
-      for (const part of aidParts) {
+    for (const { aid, parts } of agencyKeyParts) {
+      for (const part of parts) {
         if (stop.id.includes(part)) { matched.add(aid); break; }
       }
     }
-    stop.agencies = matched; // peut être vide → stop masqué
+    stop.agencies = matched;
+    if (++nAnno % 1000 === 0) {
+      await yieldToBrowser();
+      if (loadingCancelled) throw new Error('CANCELLED');
+    }
   }
 
   if (!trips.size) throw new Error('Aucun ServiceJourney trouvé dans les XML NeTEx');
